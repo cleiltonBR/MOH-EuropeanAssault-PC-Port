@@ -744,7 +744,7 @@ static void *thread_trampoline(void *arg)
     t_self_obj = o;
     t_tid      = o->tid;
 
-#if defined(__linux__)
+#if defined(__linux__) && !defined(__ANDROID__)
     /* The process mask, not the creator's: see process_mask_capture. */
     if (s_process_mask) {
         cpu_set_t set;
@@ -870,7 +870,15 @@ BOOL TerminateThread(HANDLE h, DWORD exitCode)
 {
     w32_object *o = (w32_object *)h;
     if (!o || o->kind != K_THREAD) return FALSE;
+    /* Android/Bionic does not provide pthread_cancel. Do not pretend that
+     * marking a live thread exited actually terminates it. */
+#if defined(__ANDROID__)
+    (void)exitCode;
+    SetLastError(ERROR_CALL_NOT_IMPLEMENTED);
+    return FALSE;
+#else
     pthread_cancel(o->thread);
+#endif
     pthread_mutex_lock(&o->lock);
     o->exit_code = exitCode;
     o->exited    = 1;
@@ -901,7 +909,7 @@ DWORD_PTR SetThreadAffinityMask(HANDLE h, DWORD_PTR mask)
     if (!mask)
         return 0;
     process_mask_capture();   /* before this thread's mask shrinks */
-#if defined(__linux__)
+#if defined(__linux__) && !defined(__ANDROID__)
     {
         DWORD_PTR prev = 0;
         cpu_set_t set;
@@ -1425,6 +1433,10 @@ VOID SecureZeroMemory(PVOID ptr, SIZE_T cnt)
 {
 #if defined(__APPLE__)
     memset_s(ptr, cnt, 0, cnt);
+#elif defined(__ANDROID__)
+    /* Keep the writes observable; plain memset may be optimized away. */
+    volatile unsigned char *p = (volatile unsigned char *)ptr;
+    while (cnt--) *p++ = 0;
 #else
     explicit_bzero(ptr, cnt);
 #endif
@@ -1725,7 +1737,15 @@ size_t view_take(const void *addr)
  * memfd_create for this; elsewhere an immediately-unlinked temp file does. */
 static int anon_map_fd(const char *name)
 {
-#if defined(__APPLE__)
+#if defined(__ANDROID__)
+    static volatile LONG map_counter = 0;
+    char shm_name[64];
+    LONG seq = InterlockedIncrement(&map_counter);
+    snprintf(shm_name, sizeof(shm_name), "/moh_xbox_map_%d_%ld", (int)getpid(), (long)seq);
+    int fd = shm_open(shm_name, O_CREAT | O_RDWR | O_EXCL, 0600);
+    if (fd >= 0) shm_unlink(shm_name);
+    return fd;
+#elif defined(__APPLE__)
     static volatile LONG map_counter = 0;
     /* The pid keeps two instances apart: with a bare counter, both open
      * "/xbox_map_1" and the second O_EXCL loses. macOS caps the name at 31. */
