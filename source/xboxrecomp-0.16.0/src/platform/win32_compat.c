@@ -29,6 +29,9 @@
 #include <sched.h>
 #include <fenv.h>
 #include <sys/mman.h>
+#if defined(__ANDROID__)
+#include <android/sharedmem.h>
+#endif
 #if defined(__APPLE__)
 #include <sys/sysctl.h>
 #include <sys/stat.h>
@@ -1738,13 +1741,10 @@ size_t view_take(const void *addr)
 static int anon_map_fd(const char *name)
 {
 #if defined(__ANDROID__)
-    static volatile LONG map_counter = 0;
-    char shm_name[64];
-    LONG seq = InterlockedIncrement(&map_counter);
-    snprintf(shm_name, sizeof(shm_name), "/moh_xbox_map_%d_%ld", (int)getpid(), (long)seq);
-    int fd = shm_open(shm_name, O_CREAT | O_RDWR | O_EXCL, 0600);
-    if (fd >= 0) shm_unlink(shm_name);
-    return fd;
+    /* Android's NDK exposes anonymous shared memory through libandroid.
+     * Create a one-byte region here; CreateFileMappingA immediately resizes
+     * the fd to the requested mapping size with ftruncate(). */
+    return ASharedMemory_create(name ? name : "moh_xbox_map", 1);
 #elif defined(__APPLE__)
     static volatile LONG map_counter = 0;
     /* The pid keeps two instances apart: with a bare counter, both open
