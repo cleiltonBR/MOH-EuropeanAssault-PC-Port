@@ -24,7 +24,13 @@
 
 #include "platform/xbox_winnt.h"
 #include <stdint.h>
+#if defined(__i386__) || defined(__x86_64__) || defined(_M_IX86) || defined(_M_X64)
 #include <xmmintrin.h>
+#else
+/* Keep the 128-bit guest XMM register storage layout on ARM64 without
+ * including x86-only compiler intrinsics. This is storage, not SIMD code. */
+typedef float __m128 __attribute__((vector_size(16), aligned(16)));
+#endif
 
 #ifdef __cplusplus
 extern "C" {
