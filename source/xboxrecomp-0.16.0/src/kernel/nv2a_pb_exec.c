@@ -46,8 +46,11 @@
 #include <windows.h>
 #include <intrin.h>   /* __rdtsc: par_for's spin */
 #define NV_TLS __declspec(thread)
+#define NV_TSC_READ() __rdtsc()
 #else
 #define NV_TLS __thread
+/* ARM hosts have no x86 TSC; use the monotonic host clock for profiling. */
+#define NV_TSC_READ() xbox_HostNowNs()
 #endif
 
 extern ptrdiff_t xbox_GetMemoryOffset(void);
@@ -3458,7 +3461,7 @@ static int gpu_surface_desc(Nv2aGpuSurface *d)
  * RECOMP_GPU_STATS line. */
 static int s_fp_on = -1;
 static uint64_t s_fp[4], s_fp_t, s_fp_n;
-#define FP_MARK(k) do { if (s_fp_on > 0) { uint64_t _t = __rdtsc(); \
+#define FP_MARK(k) do { if (s_fp_on > 0) { uint64_t _t = NV_TSC_READ(); \
     s_fp[k] += _t - s_fp_t; s_fp_t = _t; } } while (0)
 
 void nv2a_pb_flush_prof_report(void)
@@ -3635,7 +3638,7 @@ static void gpu_batch_flush(void)
     if (s_fp_on < 0)
         s_fp_on = getenv("RECOMP_FLUSH_PROF") != NULL;
     if (s_fp_on > 0) {
-        s_fp_t = __rdtsc();
+        s_fp_t = NV_TSC_READ();
         s_fp_n++;
     }
     if (no_rc < 0)
@@ -4336,9 +4339,9 @@ static DWORD WINAPI par_worker(LPVOID arg)
     int k = (int)(intptr_t)arg;
     LONG seen = 0;
     for (;;) {
-        uint64_t t0 = __rdtsc();
+        uint64_t t0 = NV_TSC_READ();
         LONG g;
-        while ((g = s_par.gen) == seen && __rdtsc() - t0 < PAR_SPIN_CYCLES)
+        while ((g = s_par.gen) == seen && NV_TSC_READ() - t0 < PAR_SPIN_CYCLES)
             YieldProcessor();
         if (g == seen) {
             /* Asleep, then look once more: par_for bumps gen before it
@@ -4841,7 +4844,7 @@ static void gvs_assemble(uint32_t n)
 
 /* RECOMP_FLUSH_PROF: where raster_batch_program spends its cycles. */
 static uint64_t s_gp[9], s_gp_t, s_gp_n, s_gp_nu, s_gp_nidx, s_gp_nattr;
-#define GP_MARK(k) do { if (s_fp_on > 0) { uint64_t _t = __rdtsc();     s_gp[k] += _t - s_gp_t; s_gp_t = _t; } } while (0)
+#define GP_MARK(k) do { if (s_fp_on > 0) { uint64_t _t = NV_TSC_READ();     s_gp[k] += _t - s_gp_t; s_gp_t = _t; } } while (0)
 
 void nv2a_pb_gather_prof_report(void)
 {
@@ -4874,7 +4877,7 @@ static void raster_batch_program(void)
     s_gvs = 0;
     uint32_t i, n = s_gpu.idx_count;
     if (s_fp_on > 0) {
-        s_gp_t = __rdtsc();
+        s_gp_t = NV_TSC_READ();
         s_gp_n++;
     }
 
@@ -6091,9 +6094,9 @@ void nv2a_pb_exec_method(uint32_t subch, uint32_t method, uint32_t param)
         return;
     }
     s_xp_depth = 1;
-    t0 = __rdtsc();
+    t0 = NV_TSC_READ();
     exec_method_impl(subch, method, param);
-    s_xp_cyc[subch][method >> 2] += __rdtsc() - t0;
+    s_xp_cyc[subch][method >> 2] += NV_TSC_READ() - t0;
     s_xp_cnt[subch][method >> 2]++;
     s_xp_depth = 0;
 }
@@ -6111,12 +6114,12 @@ void nv2a_pb_exec_prof_report(double walk_ms_per_frame, double threshold_ms)
     if (s_xp_on <= 0)
         return;
     if (!tsc0) {
-        tsc0 = __rdtsc();
+        tsc0 = NV_TSC_READ();
         ns0 = xbox_HostNowNs();
     } else if (!cyc_per_ms) {
         uint64_t dn = xbox_HostNowNs() - ns0;
         if (dn > 200000000ull)
-            cyc_per_ms = (double)(__rdtsc() - tsc0) / ((double)dn / 1e6);
+            cyc_per_ms = (double)(NV_TSC_READ() - tsc0) / ((double)dn / 1e6);
     }
     memset(top, 0, sizeof top);
     for (s = 0; s < 8; s++)
