@@ -33,17 +33,15 @@
 #if !defined(_WIN32)
 #include <errno.h>
 #include <sys/stat.h>
-/* POSIX/Android equivalents for optional diagnostics in this file. */
+/* POSIX/Android equivalent for the optional directory diagnostic. The
+ * generic Win32 time and keyboard APIs come from win32_compat.h; do not
+ * shadow their declarations with file-local macros. */
 static int nv2a_CreateDirectoryA(const char *path, void *security)
 {
     (void)security;
     return mkdir(path, 0777) == 0 || errno == EEXIST;
 }
 #define CreateDirectoryA(path, security) nv2a_CreateDirectoryA((path), (security))
-#define GetTickCount() ((DWORD)(xbox_HostNowNs() / 1000000ull))
-#define VK_PAUSE 0x13
-static int nv2a_GetAsyncKeyState(int key) { (void)key; return 0; }
-#define GetAsyncKeyState(key) nv2a_GetAsyncKeyState(key)
 #endif
 #include "kernel.h"   /* XBOX_CONTIG_BASE / XBOX_CONTIG_SIZE */
 #include "xbox_memory_layout.h"   /* xbox_Nv2aFrameCounterFlip */
