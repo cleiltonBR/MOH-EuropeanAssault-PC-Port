@@ -9,6 +9,7 @@ European Assault.
 - ARM64-only (arm64-v8a) NDK configuration.
 - Kotlin launcher activity calling a native JNI library.
 - Native CMake target for packaging a shared library into a debug APK.
+- First Android runtime step: the portable POSIX host layer (`platform`, including host timing, thread primitives and generic Win32 compatibility helpers) is now added to the NDK build.
 
 **This bootstrap is not the game yet.** It currently displays a status message.
 The Xbox recompilation runtime, generated game code, graphics, audio, input,
@@ -24,14 +25,13 @@ app/build/outputs/apk/debug/app-debug.apk
 
 ## Porting sequence
 
-1. Make the Android NDK build compile the existing platform/runtime sources.
-2. Replace desktop OpenGL 3.3/SDL assumptions with an Android OpenGL ES 3.x
-   context and compatible D3D8 translation path.
-3. Implement Android audio output and connect the Xbox DirectSound/APU mixer.
-4. Implement touchscreen controls and Android game-controller input.
-5. Integrate generated recompilation output and user-provided game data through
-   Android document/file APIs.
-6. Validate gameplay, performance, lifecycle, saves and APK packaging.
+1. Compile and validate the portable POSIX host-platform layer with the Android NDK (initial integration is now in place).
+2. Audit and adapt the Xbox kernel HLE for Android/Bionic, especially memory mapping, exception handling and thread semantics.
+3. Replace desktop OpenGL 3.3/SDL assumptions with an Android OpenGL ES 3.x context and a compatible D3D8 translation path.
+4. Implement Android audio output and connect the Xbox DirectSound/APU mixer.
+5. Implement touchscreen controls and Android game-controller input.
+6. Integrate privately generated recompilation output and user-provided game data through Android document/file APIs.
+7. Validate gameplay, performance, lifecycle, saves and APK packaging.
 
 ## Important source limitation
 
