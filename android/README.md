@@ -59,7 +59,7 @@ Install Termux from a trusted source, open it, then run:
 
 ```sh
 pkg update
-pkg install git python
+pkg install git python coreutils clang make
 termux-setup-storage
 git clone --branch android-port https://github.com/cleiltonBR/MOH-EuropeanAssault-PC-Port.git
 cd MOH-EuropeanAssault-PC-Port
