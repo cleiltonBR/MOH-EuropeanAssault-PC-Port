@@ -10,94 +10,68 @@ European Assault.
 - Kotlin launcher activity calling a native JNI library.
 - Native CMake target for packaging a shared library into a debug APK.
 - First Android runtime step: the portable POSIX host layer (`platform`, including host timing, thread primitives and generic Win32 compatibility helpers) is now added to the NDK build.
+- Xbox kernel/HLE sources compile in the Android NDK build.
 
 **This bootstrap is not the game yet.** It currently displays a status message.
-The Xbox recompilation runtime, generated game code, graphics, audio, input,
-file access and game assets are not connected. This milestone is not playable.
+The Xbox graphics/audio/input runtime, generated game code and game assets are
+not connected. This milestone is not playable.
 
 ## Build
 
-Open this android/ directory as a Gradle project in Android Studio, or run
-gradle --no-daemon assembleDebug from this directory.
+The GitHub Actions workflow builds the ARM64 debug APK from the repository root:
+
+```sh
+gradle --no-daemon -p android :app:assembleDebug
+```
 
 The debug APK is produced at:
-app/build/outputs/apk/debug/app-debug.apk
+`android/app/build/outputs/apk/debug/app-debug.apk`
+
+## Verified graphics architecture
+
+The existing desktop graphics path is not directly Android-compatible:
+
+- Windows uses the D3D8 compatibility implementation backed by D3D11.
+- Linux/macOS select `src/d3d/d3d8_gl.c`, which creates an SDL2 window and requests an OpenGL 3.3 core context through libepoxy.
+- That GL backend is an early implementation: its own source comments identify unfinished texture-format mapping, Xbox vertex-shader translation and pixel register-combiner translation.
+- The NV2A PGRAPH implementation is currently `nv2a_pgraph_d3d11.c` and calls the D3D8 interface. It is not an independent GLES renderer.
+- The current Android CMake target intentionally builds only the platform and kernel libraries. It does not link the desktop graphics stack.
+
+Therefore, adding SDL2 or changing the requested GL context version alone is insufficient. The Android port needs a deliberate GLES 3.x backend and a compatible NV2A/D3D8 presentation path. The first renderer milestone should be a small Android EGL/GLES surface with shader compilation, clear, viewport, textured quad and present tests, followed by the D3D8 state/resource/draw implementation and NV2A integration.
 
 ## Porting sequence
 
-1. Compile and validate the portable POSIX host-platform layer with the Android NDK (initial integration is now in place).
-2. Audit and adapt the Xbox kernel HLE for Android/Bionic, especially memory mapping, exception handling and thread semantics.
-3. Replace desktop OpenGL 3.3/SDL assumptions with an Android OpenGL ES 3.x context and a compatible D3D8 translation path.
-4. Implement Android audio output and connect the Xbox DirectSound/APU mixer.
-5. Implement touchscreen controls and Android game-controller input.
-6. Integrate privately generated recompilation output and user-provided game data through Android document/file APIs.
-7. Validate gameplay, performance, lifecycle, saves and APK packaging.
+1. Compile and validate the portable POSIX host-platform layer with the Android NDK (complete).
+2. Compile and validate the Xbox kernel/HLE sources for Android/Bionic (initial compile milestone complete; runtime behavior still needs device validation).
+3. Build an Android EGL/GLES 3.x rendering smoke test, independent of the game.
+4. Port the D3D8 compatibility layer from the desktop GL implementation to GLES, accounting for shader-language and texture-format differences.
+5. Adapt NV2A PGRAPH calls to the Android graphics backend; remove the current D3D11-specific dependency from the Android path.
+6. Implement Android audio output and connect the Xbox DirectSound/APU mixer.
+7. Implement touchscreen controls and Android game-controller input.
+8. Integrate privately generated recompilation output and user-provided game data through Android document/file APIs.
+9. Validate gameplay, performance, lifecycle, saves and APK packaging on a physical ARM64 device.
 
-## Important source limitation
+## Generated game code and assets
 
-The repository intentionally excludes source/mygame/src/recomp/gen/, the large
-machine-translated game code generated from the owner's DEFAULT.XBE. A legal
-USA/NTSC-U game copy and the documented recompiler pipeline are required to
-generate it. The Android port cannot run the game without that code and data.
+The repository intentionally excludes the large machine-translated game code
+generated from the owner's `DEFAULT.XBE`, as well as copyrighted game assets.
+The game cannot run without the generated code and the user's legally obtained
+game data.
 
+The PC project already supports `RECOMP_GEN_DIR` to point CMake at a private
+generated-source directory. The Android workflow does not currently receive
+that private directory, and it must not be committed to this public repository.
+A later integration step must provide it to GitHub Actions through a private,
+access-controlled artifact or another user-approved private transfer route.
 
-## Private XBE recompilation from Android / Termux
+Never commit or upload `DEFAULT.XBE`, generated game C files, or game assets
+to this public repository.
 
-The repository does not contain the game's generated C code. If you have your
-own USA/NTSC-U `DEFAULT.XBE`, the included Termux helper runs the toolkit's
-five analysis/recompilation stages on the Android device:
+## Android/Bionic compatibility
 
-1. XBE header/section/import parsing.
-2. x86 disassembly and function detection.
-3. CRT / RenderWare / XDK / game-function identification.
-4. ABI and calling-convention analysis.
-5. x86-to-C recompilation, split into manageable source files.
-
-### Termux setup
-
-Install Termux from a trusted source, open it, then run:
-
-```sh
-pkg update
-pkg install git python coreutils clang make
-termux-setup-storage
-git clone --branch android-port https://github.com/cleiltonBR/MOH-EuropeanAssault-PC-Port.git
-cd MOH-EuropeanAssault-PC-Port
-bash android/tools/recompile-xbe-termux.sh ~/storage/downloads/DEFAULT.XBE
-```
-
-Replace the XBE path if the file is stored somewhere else. The first run installs
-the Python Capstone dependency. The analysis can take a long time and use
-substantial memory and storage; keep the phone charging and do not let Android
-put Termux to sleep.
-
-### Where the output goes
-
-The script copies the XBE into `$HOME/MOH-EuropeanAssault-private/input/` and
-writes all generated code and analysis reports under
-`$HOME/MOH-EuropeanAssault-private/recompilation/`. These paths are outside the
-Git checkout. The XBE and generated code are not pushed to GitHub.
-
-For a native desktop build, `source/mygame/CMakeLists.txt` now accepts
-`RECOMP_GEN_DIR` so a local build can point at the private generated folder.
-This only prepares the generated sources for a later build; it does not make
-the current Android bootstrap playable.
-
-### Important status
-
-- The generated code has **not** been generated or compiled by this repository
-  workflow yet; the helper must be run on the device that holds the XBE.
-- The project's existing `source/gen_hand_edits.txt` documents historical
-  edits made inside a previous generated output. They are not automatically
-  replayed by the toolkit, so those changes must be reviewed individually
-  before treating a fresh generation as equivalent to the existing PC port.
-- The Android JNI target still does not link the Xbox runtime or generated game
-  code. The next engineering milestone after generation is adapting the
-  runtime/platform, graphics, audio and input layers for Android ARM64.
-- Never commit or upload `DEFAULT.XBE`, generated game C files, or game assets
-  to this public repository.
-
-
-### Android/Bionic compatibility
-
-The POSIX host layer now has Android-specific fallbacks for thread affinity, secure memory clearing, and anonymous shared-memory file descriptors. `TerminateThread` reports `ERROR_CALL_NOT_IMPLEMENTED` on Android because Bionic does not provide `pthread_cancel`; callers must not assume forced thread termination is available. The Android NDK build validates this host layer only, not the game runtime.
+The POSIX host layer has Android-specific fallbacks for thread affinity,
+secure memory clearing, and anonymous shared-memory file descriptors.
+`TerminateThread` reports `ERROR_CALL_NOT_IMPLEMENTED` on Android because
+Bionic does not provide `pthread_cancel`; callers must not assume forced
+thread termination is available. The Android NDK build validates compilation
+of the host/kernel layers only, not the complete game runtime.
