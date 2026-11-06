@@ -23,6 +23,8 @@
 #endif
 #define STATUS_CONFLICTING_ADDRESSES   0xC0000018u
 
+static int extvma_commit(uint32_t start, uint32_t end);
+
 typedef struct {
     uint32_t owner;           /* VA of the reservation this page belongs to, 0 = free */
     uint16_t state;           /* 0 = free, MEM_RESERVE_FLAG or MEM_COMMIT_FLAG */
