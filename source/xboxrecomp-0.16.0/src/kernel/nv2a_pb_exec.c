@@ -30,6 +30,21 @@
 #include <stdlib.h>
 #include <string.h>
 #include <time.h>
+#if !defined(_WIN32)
+#include <errno.h>
+#include <sys/stat.h>
+/* POSIX/Android equivalents for optional diagnostics in this file. */
+static int nv2a_CreateDirectoryA(const char *path, void *security)
+{
+    (void)security;
+    return mkdir(path, 0777) == 0 || errno == EEXIST;
+}
+#define CreateDirectoryA(path, security) nv2a_CreateDirectoryA((path), (security))
+#define GetTickCount() ((DWORD)(xbox_HostNowNs() / 1000000ull))
+#define VK_PAUSE 0x13
+static int nv2a_GetAsyncKeyState(int key) { (void)key; return 0; }
+#define GetAsyncKeyState(key) nv2a_GetAsyncKeyState(key)
+#endif
 #include "kernel.h"   /* XBOX_CONTIG_BASE / XBOX_CONTIG_SIZE */
 #include "xbox_memory_layout.h"   /* xbox_Nv2aFrameCounterFlip */
 #include "nv2a_flip_hold.h"
@@ -3360,6 +3375,11 @@ static void xf_rows_parallel(const XfTri *T, int ntris, long px,
     }
 }
 #else
+/* Android/POSIX uses the caller thread for the software rasterizer. */
+static int raster_pool_size(void)
+{
+    return 1;
+}
 static void xf_rows_parallel(const XfTri *T, int ntris, long px,
                              XfCount *total)
 {
