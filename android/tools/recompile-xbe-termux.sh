@@ -44,7 +44,7 @@ PYTHON_VERSION="$("$PYTHON_BIN" -c 'import sys; print("%d.%d" % sys.version_info
 }
 
 echo "Installing the recompiler's Python dependency (Capstone)..."
-"$PYTHON_BIN" -m pip install --user --upgrade capstone
+"$PYTHON_BIN" -m pip install --upgrade capstone
 
 cp -- "$XBE_INPUT" "$XBE_COPY"
 chmod 600 "$XBE_COPY"
