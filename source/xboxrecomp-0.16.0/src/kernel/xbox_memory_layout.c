@@ -1548,12 +1548,12 @@ void xbox_Nv2aKickDiag(char *buf, size_t n)
     volatile uint32_t *r = (volatile uint32_t *)((char *)g_nv2a_memory + NV2A_ACK_PFB_FLUSH);
     uint32_t put, get;
     if (!g_nv2a_memory) {
-        _snprintf(buf, n, "nv2a: not mapped");
+        snprintf(buf, n, "nv2a: not mapped");
         return;
     }
     put = *(volatile uint32_t *)((char *)g_nv2a_memory + NV2A_USER_DMA_PUT) & 0x0FFFFFFFu;
     get = *(volatile uint32_t *)((char *)g_nv2a_memory + NV2A_USER_DMA_GET) & 0x0FFFFFFFu;
-    _snprintf(buf, n, "kick word %08X flip_held %ld PUT %07X GET %07X lead %d KB, ahead limit %u KB, hold_kick %d",
+    snprintf(buf, n, "kick word %08X flip_held %ld PUT %07X GET %07X lead %d KB, ahead limit %u KB, hold_kick %d",
               (unsigned)*r, (long)g_nv2a_flip_held, put, get, (int)((int32_t)(put - get) / 1024),
               s_flush_ahead / 1024u, s_hold_kick);
     buf[n - 1] = 0;
