@@ -96,3 +96,8 @@ the current Android bootstrap playable.
   runtime/platform, graphics, audio and input layers for Android ARM64.
 - Never commit or upload `DEFAULT.XBE`, generated game C files, or game assets
   to this public repository.
+
+
+### Android/Bionic compatibility
+
+The POSIX host layer now has Android-specific fallbacks for thread affinity, secure memory clearing, and anonymous shared-memory file descriptors. `TerminateThread` reports `ERROR_CALL_NOT_IMPLEMENTED` on Android because Bionic does not provide `pthread_cancel`; callers must not assume forced thread termination is available. The Android NDK build validates this host layer only, not the game runtime.
