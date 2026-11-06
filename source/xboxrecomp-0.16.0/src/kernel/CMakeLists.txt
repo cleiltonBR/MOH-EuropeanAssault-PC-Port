@@ -49,6 +49,10 @@ if(WIN32)
     # platform is an INTERFACE target on Windows: it contributes the src/
     # include path that "platform/xbox_winnt.h" resolves against.
     target_link_libraries(xbox_kernel PUBLIC platform kernel32 gdi32 bcrypt d3d11 d3dcompiler dxguid)
+elseif(ANDROID)
+    # kernel_crypto.c contains portable software SHA-1/RC4/HMAC routines;
+    # Android must not depend on a desktop OpenSSL package for this layer.
+    target_link_libraries(xbox_kernel PUBLIC platform)
 else()
     # Linux: platform layer (POSIX host primitives) + OpenSSL for crypto.
     find_package(OpenSSL REQUIRED)
@@ -65,6 +69,11 @@ endif()
 # The trapped-MMIO dispatch (xbox_VehMmioFault, xbox_PosixMmioFault) routes
 # to the APU and the USB OHCI models. Link-only: both already call back into
 # the kernel, and CMake repeats static libraries in such a cycle.
-target_link_libraries(xbox_kernel PRIVATE xbox_apu xbox_usb)
+if(TARGET xbox_apu)
+    target_link_libraries(xbox_kernel PRIVATE xbox_apu)
+endif()
+if(TARGET xbox_usb)
+    target_link_libraries(xbox_kernel PRIVATE xbox_usb)
+endif()
 
 target_compile_definitions(xbox_kernel PRIVATE $<$<CONFIG:Debug>:_DEBUG>)
