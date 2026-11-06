@@ -595,6 +595,7 @@ int nv2a_vsh_run(const float in[NV2A_VSH_INPUTS][4], Nv2aVshOutput *out)
  * rare ILU ops (rcc, exp, log, lit) done lane by lane through run_ilu
  * itself. Writes to c[] (CXT_WRITE) are
  * not supported; the caller keeps those programs on the scalar path. */
+#if defined(__i386__) || defined(__x86_64__) || defined(_M_IX86) || defined(_M_X64)
 #include <emmintrin.h>
 
 typedef struct { __m128 c[4]; } V4;
@@ -849,6 +850,37 @@ int nv2a_vsh_run4(const float (*const in[4])[4], uint32_t lanes,
     }
     return 0;
 }
+
+#else
+/*
+ * ARM/Android fallback: use the already-tested scalar interpreter for each
+ * lane. This keeps vertex-program execution available on ARM64 without
+ * including x86-only SSE intrinsics. The x86 build retains its four-wide path.
+ */
+uint32_t nv2a_vsh_inputs_used(void)
+{
+    uint32_t i, k, m = 0;
+    if (s_dec_version != s_prog_version)
+        vsh_decode();
+    for (i = 0; i < s_dec_n; i++)
+        for (k = 0; k < 3; k++)
+            if (s_dec[i].src[k].mux == 2)
+                m |= 1u << s_dec[i].src[k].in;
+    return m;
+}
+
+int nv2a_vsh_run4(const float (*const in[4])[4], uint32_t lanes,
+                  Nv2aVshOutput *out)
+{
+    uint32_t lane;
+    if (lanes > 4)
+        lanes = 4;
+    for (lane = 0; lane < lanes; lane++)
+        if (!nv2a_vsh_run(in[lane], &out[lane]))
+            return 0;
+    return lanes != 0;
+}
+#endif
 
 /* For a GPU that runs the program itself (nv2a_gpu_draw_program): the
  * instructions from the start slot through the final one, and the constant
