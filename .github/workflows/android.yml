@@ -110,7 +110,9 @@ jobs:
           test -f private-generated/recompilation.zip
           mkdir -p "$RUNNER_TEMP/moh-recomp"
           unzip -q private-generated/recompilation.zip -d "$RUNNER_TEMP/moh-recomp"
-          GEN_DIR="$(find "$RUNNER_TEMP/moh-recomp" -type f -name recomp_funcs.h -printf '%h\\n' -quit)"
+          GEN_HEADER="$(find "$RUNNER_TEMP/moh-recomp" -type f -name recomp_funcs.h -print -quit)"
+          test -n "$GEN_HEADER"
+          GEN_DIR="$(dirname "$GEN_HEADER")"
           test -n "$GEN_DIR"
           test -f "$GEN_DIR/recomp_types.h"
           DISPATCH_FILE="$(find "$RUNNER_TEMP/moh-recomp" -type f -name recomp_dispatch.c -print -quit)"
