@@ -35,3 +35,6 @@ target_link_libraries(moh_android PRIVATE
     log
 )
 target_compile_definitions(moh_android PRIVATE MOH_ANDROID_PLATFORM_LINKED=1)
+
+# Build the portable SSE compatibility check as an independent ARM64 target.
+include("${CMAKE_CURRENT_SOURCE_DIR}/recomp_sse_compat_test.cmake")
