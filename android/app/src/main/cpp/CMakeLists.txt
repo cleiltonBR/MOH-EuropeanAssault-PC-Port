@@ -42,6 +42,7 @@ target_compile_definitions(moh_android PRIVATE MOH_ANDROID_PLATFORM_LINKED=1)
 # into this public repository or linked into the D3D8 smoke-test library.
 option(MOH_BUILD_GENERATED_RECOMP "Compile private generated game C sources for Android ARM64" OFF)
 set(RECOMP_GEN_DIR "" CACHE PATH "Private directory containing generated recompilation C sources")
+set(RECOMP_ROOT_DIR "" CACHE PATH "Private recompilation root containing dispatcher and unresolved stubs")
 if(MOH_BUILD_GENERATED_RECOMP)
     if(NOT ANDROID OR NOT CMAKE_ANDROID_ARCH_ABI STREQUAL "arm64-v8a")
         message(FATAL_ERROR "MOH_BUILD_GENERATED_RECOMP requires an Android arm64-v8a build")
@@ -54,8 +55,17 @@ if(MOH_BUILD_GENERATED_RECOMP)
     if(NOT MOH_RECOMP_GENERATED_SOURCES)
         message(FATAL_ERROR "No generated C sources found in RECOMP_GEN_DIR")
     endif()
+    if(NOT RECOMP_ROOT_DIR OR NOT EXISTS "${RECOMP_ROOT_DIR}/recomp_dispatch.c"
+       OR NOT EXISTS "${RECOMP_ROOT_DIR}/recomp_stubs_unresolved.c")
+        message(FATAL_ERROR "RECOMP_ROOT_DIR must contain recomp_dispatch.c and recomp_stubs_unresolved.c")
+    endif()
+    list(APPEND MOH_RECOMP_GENERATED_SOURCES
+        "${RECOMP_ROOT_DIR}/recomp_dispatch.c"
+        "${RECOMP_ROOT_DIR}/recomp_stubs_unresolved.c"
+    )
     add_library(moh_generated_recomp_arm64 STATIC ${MOH_RECOMP_GENERATED_SOURCES})
     target_include_directories(moh_generated_recomp_arm64 PRIVATE
+        "${RECOMP_ROOT_DIR}"
         "${RECOMP_GEN_DIR}"
         "${CMAKE_CURRENT_SOURCE_DIR}"
     )
