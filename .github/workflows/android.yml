@@ -80,6 +80,40 @@ jobs:
       - name: Build ARM64 APK and compile generated game archive
         run: gradle --no-daemon -p android :app:assembleDebug
 
+      - name: Inspect generated-code link dependencies (metadata only)
+        shell: bash
+        run: |
+          set -euo pipefail
+          REPORT="$RUNNER_TEMP/recomp-linkage-report.txt"
+          {
+            echo "Generated recompilation linkage inventory"
+            echo "This report contains symbol metadata only; no source code or build logs."
+            echo
+            echo "Generated source files:"
+            find "$RECOMP_ROOT_DIR" -type f \\( -name '*.c' -o -name '*.h' \\) -printf '%P\\n' | sort
+            echo
+            echo "Undefined symbols in the compiled generated-code archive:"
+            ARCHIVE="$(find android/app/.cxx -type f -name 'libmoh_generated_recomp_arm64.a' -print -quit)"
+            if [ -z "$ARCHIVE" ]; then
+              echo "Generated archive not found"
+              exit 1
+            fi
+            NM="$(find "$ANDROID_HOME/ndk/27.2.12479018/toolchains/llvm/prebuilt" -type f -name llvm-nm -print -quit)"
+            test -n "$NM"
+            "$NM" --undefined-only --format=posix "$ARCHIVE" | awk '{print $NF}' | sort -u
+            echo
+            echo "Dispatcher and entry-point declarations:"
+            grep -R -n -E 'xbe_entry_point|recomp_dispatch_init|recomp_lookup' "$RECOMP_ROOT_DIR" --include='*.h' --include='*.c' | sed -E 's#^([^:]+):[0-9]+:#\\1:#' | sort -u || true
+          } > "$REPORT"
+          mkdir -p android/recomp-linkage-report
+          cp "$REPORT" android/recomp-linkage-report/linkage.txt
+
+      - name: Upload generated-code linkage inventory
+        uses: actions/upload-artifact@v4
+        with:
+          name: moh-generated-code-linkage-inventory
+          path: android/recomp-linkage-report/linkage.txt
+          if-no-files-found: error
       - name: Upload ARM64 debug APK
         uses: actions/upload-artifact@v4
         with:
