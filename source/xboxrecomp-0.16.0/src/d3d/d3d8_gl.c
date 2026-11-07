@@ -60,14 +60,7 @@ static const char *g_window_title = "Xbox Game";
 #else
 static EGLDisplay g_android_display = EGL_NO_DISPLAY;
 static EGLSurface g_android_surface = EGL_NO_SURFACE;
-void d3d8_android_set_egl_surface(EGLDisplay display, EGLSurface surface,
-                                  int width, int height)
-{
-    g_android_display = display;
-    g_android_surface = surface;
-    g.backbuf_w = width;
-    g.backbuf_h = height;
-}
+
 #endif
 
 #ifndef __ANDROID__
@@ -127,6 +120,17 @@ typedef struct {
 } D3DGL;
 
 static D3DGL g;
+
+#ifdef __ANDROID__
+void d3d8_android_set_egl_surface(EGLDisplay display, EGLSurface surface,
+                                  int width, int height)
+{
+    g_android_display = display;
+    g_android_surface = surface;
+    g.backbuf_w = width;
+    g.backbuf_h = height;
+}
+#endif
 
 /* ======================================================================== */
 /* Tiny helpers                                                             */
