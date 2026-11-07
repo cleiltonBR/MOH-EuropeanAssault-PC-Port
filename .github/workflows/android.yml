@@ -112,7 +112,10 @@ jobs:
           unzip -q private-generated/recompilation.zip -d "$RUNNER_TEMP/moh-recomp"
           test -f "$RUNNER_TEMP/moh-recomp/recompilation/gen/recomp_funcs.h"
           test -f "$RUNNER_TEMP/moh-recomp/recompilation/gen/recomp_types.h"
+          test -f "$RUNNER_TEMP/moh-recomp/recompilation/recomp_dispatch.c"
+          test -f "$RUNNER_TEMP/moh-recomp/recompilation/recomp_stubs_unresolved.c"
           echo "RECOMP_GEN_DIR=$RUNNER_TEMP/moh-recomp/recompilation/gen" >> "$GITHUB_ENV"
+          echo "RECOMP_ROOT_DIR=$RUNNER_TEMP/moh-recomp/recompilation" >> "$GITHUB_ENV"
 
       - name: Set up Android NDK and CMake
         if: env.MOH_PRIVATE_REPO_TOKEN != ''
@@ -124,7 +127,8 @@ jobs:
         if: env.MOH_PRIVATE_REPO_TOKEN != ''
         run: |
           NDK="$ANDROID_HOME/ndk/27.2.12479018"
-          cmake -S android/app/src/main/cpp -B "$RUNNER_TEMP/moh-generated-build"             -DCMAKE_TOOLCHAIN_FILE="$NDK/build/cmake/android.toolchain.cmake"             -DANDROID_ABI=arm64-v8a             -DANDROID_PLATFORM=android-24             -DMOH_BUILD_GENERATED_RECOMP=ON             -DRECOMP_GEN_DIR="$RECOMP_GEN_DIR"
+          cmake -S android/app/src/main/cpp -B "$RUNNER_TEMP/moh-generated-build"             -DCMAKE_TOOLCHAIN_FILE="$NDK/build/cmake/android.toolchain.cmake"             -DANDROID_ABI=arm64-v8a             -DANDROID_PLATFORM=android-24             -DMOH_BUILD_GENERATED_RECOMP=ON             -DRECOMP_GEN_DIR="$RECOMP_GEN_DIR" \
+            -DRECOMP_ROOT_DIR="$RECOMP_ROOT_DIR"
 
       - name: Compile all generated game C units for Android ARM64
         if: env.MOH_PRIVATE_REPO_TOKEN != ''
