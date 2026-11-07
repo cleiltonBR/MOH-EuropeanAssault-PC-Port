@@ -61,7 +61,6 @@ void inspectXbeLocked() {
 }
 
 bool hasGameXbe() {
-    std::lock_guard<std::mutex> lock(g_game_dir_mutex);
     if (g_game_dir.empty()) return false;
     const std::string path = g_game_dir + "/default.xbe";
     struct stat info{};
