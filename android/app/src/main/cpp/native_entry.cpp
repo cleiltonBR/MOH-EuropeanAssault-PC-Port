@@ -4,7 +4,6 @@
 #include <EGL/egl.h>
 #include <GLES3/gl3.h>
 #include "d3d8_xbox.h"
-#include "kernel.h"
 #include <atomic>
 #include <chrono>
 #include <thread>
@@ -15,6 +14,9 @@
 #include <cstdint>
 #include <fstream>
 #include <vector>
+
+// Narrow C ABI declaration avoids importing the full Xbox kernel header into JNI.
+extern "C" void xbox_path_init(const char* game_dir, const char* save_dir);
 
 extern "C" void d3d8_android_set_egl_surface(
     EGLDisplay display, EGLSurface surface, int width, int height);
