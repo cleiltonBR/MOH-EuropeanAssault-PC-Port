@@ -8,9 +8,14 @@
 #include <chrono>
 #include <thread>
 #include <cstdio>
+#include <cstdint>
 
 extern "C" void d3d8_android_set_egl_surface(
     EGLDisplay display, EGLSurface surface, int width, int height);
+
+#ifdef MOH_HAS_GENERATED_RECOMP
+extern "C" void xbe_entry_point(void);
+#endif
 
 namespace {
 std::atomic<bool> g_running{false};
@@ -62,9 +67,7 @@ void renderLoop(ANativeWindow* window) {
     d3d8_android_set_egl_surface(display, surface, width, height);
     g_stage.store(4);
 
-    /* Exercise the project's real Xbox D3D8 compatibility API on the
-     * Activity-owned EGL/GLES3 context. This is a backend test, not game boot:
-     * private generated XBE code and game assets are not part of this APK. */
+    /* Keep the existing D3D8 backend check until the XBE boot path is ready. */
     g_stage.store(5);
     IDirect3D8* d3d = xbox_Direct3DCreate8(0);
     IDirect3DDevice8* device = nullptr;
@@ -107,14 +110,22 @@ void renderLoop(ANativeWindow* window) {
     ANativeWindow_release(window);
     g_running.store(false);
 }
-
 } // namespace
 
 extern "C" JNIEXPORT jstring JNICALL
 Java_com_cleiltonbr_moheuropeanassault_MainActivity_nativeStatus(JNIEnv* env, jobject) {
-    char message[192];
-    snprintf(message, sizeof(message), "D3D8 stage=%d frames=%llu error=0x%08X. Game not connected.",
+    char message[256];
+#ifdef MOH_HAS_GENERATED_RECOMP
+    const uintptr_t entryAddress = reinterpret_cast<uintptr_t>(&xbe_entry_point);
+    snprintf(message, sizeof(message),
+        "D3D8 stage=%d frames=%llu error=0x%08X. Game code linked; XBE boot pending (entry=%p).",
+        g_stage.load(), g_frames.load(), static_cast<unsigned int>(g_error.load()),
+        reinterpret_cast<void*>(entryAddress));
+#else
+    snprintf(message, sizeof(message),
+        "D3D8 stage=%d frames=%llu error=0x%08X. Generated game code not linked.",
         g_stage.load(), g_frames.load(), static_cast<unsigned int>(g_error.load()));
+#endif
     return env->NewStringUTF(message);
 }
 
