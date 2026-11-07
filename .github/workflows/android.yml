@@ -110,12 +110,16 @@ jobs:
           test -f private-generated/recompilation.zip
           mkdir -p "$RUNNER_TEMP/moh-recomp"
           unzip -q private-generated/recompilation.zip -d "$RUNNER_TEMP/moh-recomp"
-          test -f "$RUNNER_TEMP/moh-recomp/recompilation/gen/recomp_funcs.h"
-          test -f "$RUNNER_TEMP/moh-recomp/recompilation/gen/recomp_types.h"
-          test -f "$RUNNER_TEMP/moh-recomp/recompilation/recomp_dispatch.c"
-          test -f "$RUNNER_TEMP/moh-recomp/recompilation/recomp_stubs_unresolved.c"
-          echo "RECOMP_GEN_DIR=$RUNNER_TEMP/moh-recomp/recompilation/gen" >> "$GITHUB_ENV"
-          echo "RECOMP_ROOT_DIR=$RUNNER_TEMP/moh-recomp/recompilation" >> "$GITHUB_ENV"
+          GEN_DIR="$(find "$RUNNER_TEMP/moh-recomp" -type f -name recomp_funcs.h -printf '%h\\n' -quit)"
+          test -n "$GEN_DIR"
+          test -f "$GEN_DIR/recomp_types.h"
+          DISPATCH_FILE="$(find "$RUNNER_TEMP/moh-recomp" -type f -name recomp_dispatch.c -print -quit)"
+          STUBS_FILE="$(find "$RUNNER_TEMP/moh-recomp" -type f -name recomp_stubs_unresolved.c -print -quit)"
+          test -n "$DISPATCH_FILE"
+          test -n "$STUBS_FILE"
+          test "$(dirname "$DISPATCH_FILE")" = "$(dirname "$STUBS_FILE")"
+          echo "RECOMP_GEN_DIR=$GEN_DIR" >> "$GITHUB_ENV"
+          echo "RECOMP_ROOT_DIR=$(dirname "$DISPATCH_FILE")" >> "$GITHUB_ENV"
 
       - name: Set up Android NDK and CMake
         if: env.MOH_PRIVATE_REPO_TOKEN != ''
