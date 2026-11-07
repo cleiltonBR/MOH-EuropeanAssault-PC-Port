@@ -17,6 +17,11 @@ if(WIN32)
     # Offline smoke test for the pure format layer (no D3D11 device needed).
     add_subdirectory(${CMAKE_CURRENT_LIST_DIR}/../../tests/d3d8_smoke
                      ${CMAKE_CURRENT_BINARY_DIR}/d3d8_smoke)
+elseif(ANDROID)
+    add_library(xbox_d3d8 STATIC
+        d3d8_gl.c
+    )
+    target_link_libraries(xbox_d3d8 PUBLIC platform EGL GLESv3 android log)
 else()
     add_library(xbox_d3d8 STATIC
         d3d8_gl.c
