@@ -172,3 +172,25 @@ jobs:
           sed -n '1,160p' "$RUNNER_TEMP/recomp-unresolved-final.txt"
           echo "Dispatcher and entry declarations:"
           grep -nE 'xbe_entry_point|recomp_dispatch_init|recomp_get_count|recomp_lookup|recomp_call_all' "$RECOMP_GEN_DIR/recomp_funcs.h" "$RECOMP_ROOT_DIR/recomp_funcs.h" 2>/dev/null || true
+
+      - name: Compare generated dependencies with Android runtime libraries
+        if: env.MOH_PRIVATE_REPO_TOKEN != ''
+        run: |
+          NDK="$ANDROID_HOME/ndk/27.2.12479018"
+          LLVM_NM="$NDK/toolchains/llvm/prebuilt/linux-x86_64/bin/llvm-nm"
+          BUILD="$RUNNER_TEMP/moh-generated-build"
+          cmake --build "$BUILD" --target platform xbox_kernel xbox_d3d8 --parallel 2
+          find "$BUILD" -type f \( -name 'libplatform.a' -o -name 'libxbox_kernel.a' -o -name 'libxbox_d3d8.a' \) -print
+          : > "$RUNNER_TEMP/runtime-defined.txt"
+          while IFS= read -r lib; do
+            "$LLVM_NM" -g --defined-only --format=posix "$lib" | awk '{print $1}' >> "$RUNNER_TEMP/runtime-defined.txt"
+          done < <(find "$BUILD" -type f \( -name 'libplatform.a' -o -name 'libxbox_kernel.a' -o -name 'libxbox_d3d8.a' \))
+          sort -u "$RUNNER_TEMP/runtime-defined.txt" -o "$RUNNER_TEMP/runtime-defined.txt"
+          comm -12 "$RUNNER_TEMP/recomp-unresolved-final.txt" "$RUNNER_TEMP/runtime-defined.txt" > "$RUNNER_TEMP/runtime-satisfied.txt"
+          comm -23 "$RUNNER_TEMP/recomp-unresolved-final.txt" "$RUNNER_TEMP/runtime-defined.txt" > "$RUNNER_TEMP/runtime-still-missing.txt"
+          echo "Unresolved symbols supplied by Android runtime libraries: $(wc -l < "$RUNNER_TEMP/runtime-satisfied.txt")"
+          cat "$RUNNER_TEMP/runtime-satisfied.txt"
+          echo "Unresolved symbols still requiring runtime/stub implementation: $(wc -l < "$RUNNER_TEMP/runtime-still-missing.txt")"
+          cat "$RUNNER_TEMP/runtime-still-missing.txt"
+          echo "Dispatcher API signatures:"
+          grep -nE 'recomp_dispatch_init|recomp_call_all|recomp_get_count|recomp_lookup|xbe_entry_point' "$RECOMP_GEN_DIR/recomp_funcs.h" "$RECOMP_ROOT_DIR/recomp_dispatch.c" | head -n 40 || true
