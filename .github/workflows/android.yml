@@ -52,6 +52,22 @@ jobs:
           path: android/app/build/outputs/apk/debug/app-debug.apk
           if-no-files-found: error
 
+  test-sse-compat-android-arm64:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Set up Android SDK and NDK
+        uses: android-actions/setup-android@v3
+        with:
+          packages: 'ndk;27.2.12479018'
+
+      - name: Compile SSE compatibility tests for Android ARM64
+        run: |
+          NDK_CLANG="$ANDROID_HOME/ndk/27.2.12479018/toolchains/llvm/prebuilt/linux-x86_64/bin/aarch64-linux-android24-clang"
+          "$NDK_CLANG" -std=c11 -Wall -Wextra -Werror -fsyntax-only android/app/src/main/cpp/recomp_sse_compat_test.c
+
   test-sse-compat-host:
     runs-on: ubuntu-latest
     steps:
