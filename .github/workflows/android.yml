@@ -1,4 +1,4 @@
-name: Android ARM64 game integration
+name: Android ARM64 bootstrap and generated-code validation
 
 on:
   push:
@@ -28,7 +28,7 @@ jobs:
       - name: Require private generated game sources
         run: |
           if [ -z "$MOH_PRIVATE_REPO_TOKEN" ]; then
-            echo "::error::MOH_PRIVATE_REPO_TOKEN is required to build the game-integrated APK."
+            echo "::error::MOH_PRIVATE_REPO_TOKEN is required to validate generated game code."
             exit 1
           fi
 
@@ -77,13 +77,13 @@ jobs:
         with:
           gradle-version: '8.9'
 
-      - name: Build ARM64 APK with generated game code linked
+      - name: Build ARM64 APK and compile generated game archive
         run: gradle --no-daemon -p android :app:assembleDebug
 
-      - name: Upload game-integrated debug APK
+      - name: Upload ARM64 debug APK
         uses: actions/upload-artifact@v4
         with:
-          name: moh-european-assault-android-arm64-game-integrated
+          name: moh-european-assault-android-arm64-debug-generated-code-validated
           path: android/app/build/outputs/apk/debug/app-debug.apk
           if-no-files-found: error
 
