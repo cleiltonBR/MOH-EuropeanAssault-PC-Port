@@ -80,3 +80,51 @@ jobs:
 
       - name: Run SSE compatibility behavior tests
         run: /tmp/recomp_sse_compat_test
+
+  test-generated-recomp-android-arm64:
+    runs-on: ubuntu-latest
+    env:
+      MOH_PRIVATE_REPO_TOKEN: ${{ secrets.MOH_PRIVATE_REPO_TOKEN }}
+    steps:
+      - name: Checkout public Android port
+        uses: actions/checkout@v4
+
+      - name: Explain missing private repository access
+        if: env.MOH_PRIVATE_REPO_TOKEN == ''
+        run: echo "::warning::Generated-code ARM64 build skipped. Add the MOH_PRIVATE_REPO_TOKEN Actions secret with read-only access to cleiltonBR/MOH-EuropeanAssault-Private."
+
+      - name: Checkout private generated-code archive
+        if: env.MOH_PRIVATE_REPO_TOKEN != ''
+        uses: actions/checkout@v4
+        with:
+          repository: cleiltonBR/MOH-EuropeanAssault-Private
+          ref: main
+          token: ${{ secrets.MOH_PRIVATE_REPO_TOKEN }}
+          path: private-generated
+          persist-credentials: false
+
+      - name: Extract private generated sources
+        if: env.MOH_PRIVATE_REPO_TOKEN != ''
+        run: |
+          test -f private-generated/recompilation.zip
+          mkdir -p "$RUNNER_TEMP/moh-recomp"
+          unzip -q private-generated/recompilation.zip -d "$RUNNER_TEMP/moh-recomp"
+          test -f "$RUNNER_TEMP/moh-recomp/recompilation/gen/recomp_funcs.h"
+          test -f "$RUNNER_TEMP/moh-recomp/recompilation/gen/recomp_types.h"
+          echo "RECOMP_GEN_DIR=$RUNNER_TEMP/moh-recomp/recompilation/gen" >> "$GITHUB_ENV"
+
+      - name: Set up Android NDK and CMake
+        if: env.MOH_PRIVATE_REPO_TOKEN != ''
+        uses: android-actions/setup-android@v3
+        with:
+          packages: 'ndk;27.2.12479018' 
+
+      - name: Configure generated ARM64 target
+        if: env.MOH_PRIVATE_REPO_TOKEN != ''
+        run: |
+          NDK="$ANDROID_HOME/ndk/27.2.12479018"
+          cmake -S android/app/src/main/cpp -B "$RUNNER_TEMP/moh-generated-build"             -DCMAKE_TOOLCHAIN_FILE="$NDK/build/cmake/android.toolchain.cmake"             -DANDROID_ABI=arm64-v8a             -DANDROID_PLATFORM=android-24             -DMOH_BUILD_GENERATED_RECOMP=ON             -DRECOMP_GEN_DIR="$RECOMP_GEN_DIR"
+
+      - name: Compile all generated game C units for Android ARM64
+        if: env.MOH_PRIVATE_REPO_TOKEN != ''
+        run: cmake --build "$RUNNER_TEMP/moh-generated-build" --target moh_generated_recomp_arm64 --parallel 2
