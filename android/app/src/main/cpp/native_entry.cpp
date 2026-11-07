@@ -139,8 +139,8 @@ Java_com_cleiltonbr_moheuropeanassault_MainActivity_nativeSetGameDirectory(
     {
         std::lock_guard<std::mutex> lock(g_game_dir_mutex);
         g_game_dir = chars ? chars : "";
+        inspectXbeLocked();
     }
-    inspectXbeLocked();
     if (chars) env->ReleaseStringUTFChars(path, chars);
 }
 
@@ -149,17 +149,11 @@ Java_com_cleiltonbr_moheuropeanassault_MainActivity_nativeStatus(JNIEnv* env, jo
     char message[320];
     std::lock_guard<std::mutex> lock(g_game_dir_mutex);
     const bool xbeReady = hasGameXbe();
-#ifdef MOH_GENERATED_RECOMP_COMPILED
     snprintf(message, sizeof(message),
         "stage=%d frames=%llu error=0x%08X. XBE %s; %s; entry=0x%08X thunk=0x%08X.",
         g_stage.load(), g_frames.load(), static_cast<unsigned int>(g_error.load()),
-        xbeReady ? "imported" : "not imported", g_xbe_validation.c_str(), g_xbe_entry, g_xbe_kernel_thunk);
-#else
-    snprintf(message, sizeof(message),
-        "stage=%d frames=%llu error=0x%08X. XBE %s; %s; entry=0x%08X thunk=0x%08X.",
-        g_stage.load(), g_frames.load(), static_cast<unsigned int>(g_error.load()),
-        xbeReady ? "imported" : "not imported");
-#endif
+        xbeReady ? "imported" : "not imported", g_xbe_validation.c_str(),
+        g_xbe_entry, g_xbe_kernel_thunk);
     return env->NewStringUTF(message);
 }
 
