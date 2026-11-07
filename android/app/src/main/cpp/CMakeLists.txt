@@ -16,6 +16,7 @@ add_subdirectory(
     "${CMAKE_CURRENT_BINARY_DIR}/xboxrecomp-kernel")
 
 # Android uses the GLES3 branch of the shared D3D8 compatibility backend.
+# The EGL surface is owned by MainActivity and borrowed by D3D8 on its render thread.
 get_filename_component(XBOXRECOMP_D3D_DIR "${XBOXRECOMP_PLATFORM_DIR}/../d3d" ABSOLUTE)
 add_subdirectory(
     "${XBOXRECOMP_D3D_DIR}"
