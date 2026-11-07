@@ -24,6 +24,8 @@ class MainActivity : Activity(), SurfaceHolder.Callback {
     private external fun nativeStart(surface: Surface)
     private external fun nativeStop()
     private external fun nativeSetGameDirectory(path: String)
+    private external fun nativePrepareGame(): Boolean
+    private external fun nativeShutdownGame()
 
     private lateinit var status: TextView
     private val handler = Handler(Looper.getMainLooper())
@@ -84,8 +86,10 @@ class MainActivity : Activity(), SurfaceHolder.Callback {
             val rootId = DocumentsContract.getTreeDocumentId(tree)
             copyTreeDocument(tree, rootId, gameDir)
             nativeSetGameDirectory(gameDir.absolutePath)
-            Toast.makeText(this, "Arquivos copiados. " +
-                if (File(gameDir, "default.xbe").isFile) "default.xbe encontrado." else "default.xbe não encontrado.",
+            val prepared = nativePrepareGame()
+            Toast.makeText(this,
+                if (prepared) "XBE carregado; memória Xbox e kernel inicializados."
+                else "Arquivos copiados, mas a preparação do XBE falhou. Confira o status na tela.",
                 Toast.LENGTH_LONG).show()
         } catch (e: Exception) {
             Toast.makeText(this, "Falha ao importar: ${e.message}", Toast.LENGTH_LONG).show()
@@ -128,6 +132,7 @@ class MainActivity : Activity(), SurfaceHolder.Callback {
     override fun onDestroy() {
         handler.removeCallbacks(refreshStatus)
         nativeStop()
+        nativeShutdownGame()
         super.onDestroy()
     }
 }
