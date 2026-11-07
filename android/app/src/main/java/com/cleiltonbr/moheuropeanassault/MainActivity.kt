@@ -2,6 +2,8 @@ package com.cleiltonbr.moheuropeanassault
 
 import android.app.Activity
 import android.os.Bundle
+import android.os.Handler
+import android.os.Looper
 import android.view.Gravity
 import android.view.Surface
 import android.view.SurfaceHolder
@@ -15,6 +17,13 @@ class MainActivity : Activity(), SurfaceHolder.Callback {
     private external fun nativeStop()
 
     private lateinit var status: TextView
+    private val handler = Handler(Looper.getMainLooper())
+    private val refreshStatus = object : Runnable {
+        override fun run() {
+            if (::status.isInitialized) status.text = "Medal of Honor: European Assault\\n\\n" + nativeStatus()
+            handler.postDelayed(this, 500)
+        }
+    }
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
@@ -45,6 +54,7 @@ class MainActivity : Activity(), SurfaceHolder.Callback {
         )
         root.addView(status, statusParams)
         setContentView(root)
+        handler.post(refreshStatus)
     }
 
     override fun surfaceCreated(holder: SurfaceHolder) {
@@ -61,6 +71,7 @@ class MainActivity : Activity(), SurfaceHolder.Callback {
     }
 
     override fun onDestroy() {
+        handler.removeCallbacks(refreshStatus)
         nativeStop()
         super.onDestroy()
     }
