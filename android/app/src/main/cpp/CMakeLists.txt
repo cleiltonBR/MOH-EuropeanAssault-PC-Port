@@ -32,10 +32,11 @@ target_link_libraries(moh_android PRIVATE
 )
 target_compile_definitions(moh_android PRIVATE MOH_ANDROID_PLATFORM_LINKED=1)
 
-# The private generated code is compiled for the actual APK, not as a
-# disconnected audit-only archive. The entry-point reference in native_entry.cpp
-# forces the linker to pull the generated XBE entry object into libmoh_android.
-option(MOH_BUILD_GENERATED_RECOMP "Build and link private generated game code for Android ARM64" OFF)
+# Compile the private generated code for ARM64 as a separate validation target.
+# It is deliberately not linked into libmoh_android until the Android XBE loader,
+# guest-memory setup and kernel startup path are ported. Forcing xbe_entry_point
+# into the APK before those dependencies exist causes an incomplete native link.
+option(MOH_BUILD_GENERATED_RECOMP "Compile private generated game code for Android ARM64" OFF)
 set(RECOMP_GEN_DIR "" CACHE PATH "Private directory containing generated recompilation C sources")
 set(RECOMP_ROOT_DIR "" CACHE PATH "Private recompilation root containing dispatcher and unresolved stubs")
 if(MOH_BUILD_GENERATED_RECOMP)
@@ -70,8 +71,8 @@ if(MOH_BUILD_GENERATED_RECOMP)
         -Wall -Wextra -Wno-parentheses-equality
     )
     target_link_libraries(moh_generated_recomp_arm64 PRIVATE m)
-    target_link_libraries(moh_android PRIVATE moh_generated_recomp_arm64)
-    target_compile_definitions(moh_android PRIVATE MOH_HAS_GENERATED_RECOMP=1)
+    add_dependencies(moh_android moh_generated_recomp_arm64)
+    target_compile_definitions(moh_android PRIVATE MOH_GENERATED_RECOMP_COMPILED=1)
 endif()
 
 include("${CMAKE_CURRENT_SOURCE_DIR}/recomp_sse_compat_test.cmake")
