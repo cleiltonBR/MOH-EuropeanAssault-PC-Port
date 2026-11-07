@@ -139,3 +139,21 @@ jobs:
       - name: Compile all generated game C units for Android ARM64
         if: env.MOH_PRIVATE_REPO_TOKEN != ''
         run: cmake --build "$RUNNER_TEMP/moh-generated-build" --target moh_generated_recomp_arm64 --parallel 2
+
+      - name: Audit generated ARM64 symbols and entry points
+        if: env.MOH_PRIVATE_REPO_TOKEN != ''
+        run: |
+          NDK="$ANDROID_HOME/ndk/27.2.12479018"
+          LLVM_NM="$NDK/toolchains/llvm/prebuilt/linux-x86_64/bin/llvm-nm"
+          ARCHIVE="$(find "$RUNNER_TEMP/moh-generated-build" -name 'libmoh_generated_recomp_arm64.a' -print -quit)"
+          test -n "$ARCHIVE"
+          test -x "$LLVM_NM"
+          "$LLVM_NM" -g --defined-only "$ARCHIVE" > "$RUNNER_TEMP/recomp-defined.txt"
+          "$LLVM_NM" -u "$ARCHIVE" > "$RUNNER_TEMP/recomp-undefined.txt"
+          echo "Generated archive: $(basename "$ARCHIVE")"
+          echo "Defined global symbols: $(wc -l < "$RUNNER_TEMP/recomp-defined.txt")"
+          echo "Undefined symbol references: $(wc -l < "$RUNNER_TEMP/recomp-undefined.txt")"
+          echo "Candidate dispatcher / initialization symbols:"
+          grep -Ei 'recomp|(^|_)(init|start|main|entry|xbe)(_|$)' "$RUNNER_TEMP/recomp-defined.txt" | head -n 100 || true
+          echo "Unresolved external symbol sample:"
+          sed -n '1,100p' "$RUNNER_TEMP/recomp-undefined.txt"
