@@ -8,14 +8,9 @@
 #include <chrono>
 #include <thread>
 #include <cstdio>
-#include <cstdint>
 
 extern "C" void d3d8_android_set_egl_surface(
     EGLDisplay display, EGLSurface surface, int width, int height);
-
-#ifdef MOH_HAS_GENERATED_RECOMP
-extern "C" void xbe_entry_point(void);
-#endif
 
 namespace {
 std::atomic<bool> g_running{false};
@@ -115,15 +110,13 @@ void renderLoop(ANativeWindow* window) {
 extern "C" JNIEXPORT jstring JNICALL
 Java_com_cleiltonbr_moheuropeanassault_MainActivity_nativeStatus(JNIEnv* env, jobject) {
     char message[256];
-#ifdef MOH_HAS_GENERATED_RECOMP
-    const uintptr_t entryAddress = reinterpret_cast<uintptr_t>(&xbe_entry_point);
+#ifdef MOH_GENERATED_RECOMP_COMPILED
     snprintf(message, sizeof(message),
-        "D3D8 stage=%d frames=%llu error=0x%08X. Game code linked; XBE boot pending (entry=%p).",
-        g_stage.load(), g_frames.load(), static_cast<unsigned int>(g_error.load()),
-        reinterpret_cast<void*>(entryAddress));
+        "D3D8 stage=%d frames=%llu error=0x%08X. Generated game code compiled for ARM64; XBE boot integration pending.",
+        g_stage.load(), g_frames.load(), static_cast<unsigned int>(g_error.load()));
 #else
     snprintf(message, sizeof(message),
-        "D3D8 stage=%d frames=%llu error=0x%08X. Generated game code not linked.",
+        "D3D8 stage=%d frames=%llu error=0x%08X. Generated game code not compiled.",
         g_stage.load(), g_frames.load(), static_cast<unsigned int>(g_error.load()));
 #endif
     return env->NewStringUTF(message);
