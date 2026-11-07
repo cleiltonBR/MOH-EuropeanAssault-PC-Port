@@ -4,7 +4,6 @@
 #include <EGL/egl.h>
 #include <GLES3/gl3.h>
 #include "d3d8_xbox.h"
-#include "xbox_memory_layout.h"
 #include <atomic>
 #include <chrono>
 #include <thread>
@@ -31,9 +30,6 @@ uint32_t g_xbe_entry = 0;
 uint32_t g_xbe_kernel_thunk = 0;
 std::string g_xbe_validation = "XBE not inspected";
 std::vector<uint8_t> g_xbe_image;
-std::atomic<int> g_memory_status{0};
-std::atomic<long long> g_memory_offset{0};
-std::atomic<unsigned long long> g_memory_size{0};
 
 uint32_t readLe32(const std::vector<uint8_t>& bytes, size_t offset) {
     return static_cast<uint32_t>(bytes[offset]) |
@@ -96,28 +92,6 @@ bool hasGameXbe() {
     return stat(path.c_str(), &info) == 0 && S_ISREG(info.st_mode);
 }
 
-bool initializeGuestMemory() {
-    std::vector<uint8_t> image;
-    {
-        std::lock_guard<std::mutex> lock(g_game_dir_mutex);
-        if (g_xbe_entry == 0 || g_xbe_kernel_thunk == 0 || g_xbe_image.empty()) {
-            g_memory_status.store(-1);
-            return false;
-        }
-        image = g_xbe_image;
-    }
-
-    g_memory_status.store(1);
-    if (!xbox_MemoryLayoutInit(image.data(), image.size())) {
-        g_memory_status.store(-2);
-        return false;
-    }
-    g_memory_offset.store(static_cast<long long>(xbox_GetMemoryOffset()));
-    g_memory_size.store(static_cast<unsigned long long>(xbox_GetMappedSize()));
-    g_memory_status.store(2);
-    return true;
-}
-
 void renderLoop(ANativeWindow* window) {
     g_stage.store(1); g_error.store(0); g_frames.store(0);
     EGLDisplay display = eglGetDisplay(EGL_DEFAULT_DISPLAY);
@@ -148,7 +122,6 @@ void renderLoop(ANativeWindow* window) {
     eglQuerySurface(display, surface, EGL_WIDTH, &width);
     eglQuerySurface(display, surface, EGL_HEIGHT, &height);
     d3d8_android_set_egl_surface(display, surface, width, height);
-    const bool guestMemoryReady = initializeGuestMemory();
     g_stage.store(4);
     g_stage.store(5);
     IDirect3D8* d3d = xbox_Direct3DCreate8(0);
@@ -175,12 +148,6 @@ void renderLoop(ANativeWindow* window) {
         }
     } else { g_error.store(createResult); g_stage.store(-6); }
     d3d8_android_set_egl_surface(EGL_NO_DISPLAY, EGL_NO_SURFACE, 0, 0);
-    if (guestMemoryReady) {
-        xbox_MemoryLayoutShutdown();
-        g_memory_status.store(0);
-        g_memory_offset.store(0);
-        g_memory_size.store(0);
-    }
     eglMakeCurrent(display, EGL_NO_SURFACE, EGL_NO_SURFACE, EGL_NO_CONTEXT);
     eglDestroySurface(display, surface);
     eglDestroyContext(display, context);
@@ -208,11 +175,10 @@ Java_com_cleiltonbr_moheuropeanassault_MainActivity_nativeStatus(JNIEnv* env, jo
     std::lock_guard<std::mutex> lock(g_game_dir_mutex);
     const bool xbeReady = hasGameXbe();
     snprintf(message, sizeof(message),
-        "stage=%d frames=%llu error=0x%08X. XBE %s (%zu bytes); %s; entry=0x%08X thunk=0x%08X. GuestMemory=%d offset=0x%llX mapped=%llu.",
+        "stage=%d frames=%llu error=0x%08X. XBE %s (%zu bytes loaded); %s; entry=0x%08X thunk=0x%08X.",
         g_stage.load(), g_frames.load(), static_cast<unsigned int>(g_error.load()),
         xbeReady ? "imported" : "not imported", g_xbe_image.size(), g_xbe_validation.c_str(),
-        g_xbe_entry, g_xbe_kernel_thunk, g_memory_status.load(),
-        static_cast<unsigned long long>(g_memory_offset.load()), g_memory_size.load());
+        g_xbe_entry, g_xbe_kernel_thunk);
     return env->NewStringUTF(message);
 }
 
