@@ -100,7 +100,7 @@ jobs:
             fi
             NM="$(find "$ANDROID_HOME/ndk/27.2.12479018/toolchains/llvm/prebuilt" -type f -name llvm-nm -print -quit)"
             test -n "$NM"
-            "$NM" --undefined-only --format=posix "$ARCHIVE" | awk '{print $NF}' | sort -u
+            "$NM" -A -u "$ARCHIVE" | sort -u
             echo
             echo "Dispatcher and entry-point declarations:"
             grep -R -n -E 'xbe_entry_point|recomp_dispatch_init|recomp_lookup' "$RECOMP_ROOT_DIR" --include='*.h' --include='*.c' | sed -E 's#^([^:]+):[0-9]+:#\1:#' | sort -u || true
