@@ -66,7 +66,9 @@ static inline __m128 _mm_unpackhi_ps(__m128 a,__m128 b){return (__m128){a[2],b[2
 
 static inline int32_t _mm_cvttss_si32(__m128 a){double x=trunc((double)a[0]);return isfinite(x)&&x>=-2147483648.0&&x<2147483648.0?(int32_t)x:INT32_MIN;}
 static inline int32_t _mm_cvtss_si32(__m128 a){double x=nearbyint((double)a[0]);return isfinite(x)&&x>=-2147483648.0&&x<2147483648.0?(int32_t)x:INT32_MIN;}
-static inline int32_t _mm_cvttsd_si32(__m128 a){return _mm_cvttss_si32(a);}
-static inline int32_t _mm_cvtsd_si32(__m128 a){return _mm_cvtss_si32(a);}
+static inline double moh_sse_low_double(__m128 a){double x;memcpy(&x,&a,sizeof(x));return x;}
+static inline int32_t moh_sse_double_to_i32(double x,int rounded){x=rounded?nearbyint(x):trunc(x);return isfinite(x)&&x>=-2147483648.0&&x<2147483648.0?(int32_t)x:INT32_MIN;}
+static inline int32_t _mm_cvttsd_si32(__m128 a){return moh_sse_double_to_i32(moh_sse_low_double(a),0);}
+static inline int32_t _mm_cvtsd_si32(__m128 a){return moh_sse_double_to_i32(moh_sse_low_double(a),1);}
 
 #endif
