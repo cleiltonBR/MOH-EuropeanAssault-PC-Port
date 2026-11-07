@@ -7,6 +7,9 @@
 #include <chrono>
 #include <thread>
 
+extern "C" void d3d8_android_set_egl_surface(
+    EGLDisplay display, EGLSurface surface, int width, int height);
+
 namespace {
 std::atomic<bool> g_running{false};
 std::thread g_thread;
@@ -104,6 +107,7 @@ void renderLoop(ANativeWindow* window) {
     GLint width = 0, height = 0;
     eglQuerySurface(display, surface, EGL_WIDTH, &width);
     eglQuerySurface(display, surface, EGL_HEIGHT, &height);
+    d3d8_android_set_egl_surface(display, surface, width, height);
     glViewport(0, 0, width, height);
 
     const GLuint program = createProgram();
@@ -159,6 +163,7 @@ void renderLoop(ANativeWindow* window) {
     if (vbo) glDeleteBuffers(1, &vbo);
     if (vao) glDeleteVertexArrays(1, &vao);
     if (program) glDeleteProgram(program);
+    d3d8_android_set_egl_surface(EGL_NO_DISPLAY, EGL_NO_SURFACE, 0, 0);
     eglMakeCurrent(display, EGL_NO_SURFACE, EGL_NO_SURFACE, EGL_NO_CONTEXT);
     eglDestroySurface(display, surface);
     eglDestroyContext(display, context);
