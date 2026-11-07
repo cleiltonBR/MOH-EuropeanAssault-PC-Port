@@ -164,12 +164,12 @@ jobs:
                   if count:
                       hits.append(f"{path.relative_to(root)} ({count})")
               print(f"[{symbol}] " + ("; ".join(hits) if hits else "not present in extracted source tree"))
-          print("\\nRuntime helper declarations (declaration lines only):")
+          print("Runtime helper declarations (declaration lines only):")
           helpers = {"recomp_icall_fail_log", "recomp_icall_not_code_log", "recomp_lookup_manual", "recomp_unimpl"}
           for header in generated_root.rglob("*.h"):
               try:
                   for line_no, line in enumerate(header.read_text(errors="ignore").splitlines(), 1):
-                      if any(re.search(r"\\b" + re.escape(name) + r"\\b", line) for name in helpers):
+                      if any(re.search(r"\b" + re.escape(name) + r"\b", line) for name in helpers):
                           print("{}:{}: {}".format(header.relative_to(root), line_no, line.strip()))
               except OSError:
                   pass
