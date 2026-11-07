@@ -80,10 +80,20 @@ void renderLoop(ANativeWindow* window) {
     if (createResult == 0 && device) {
         g_stage.store(6);
         while (g_running.load()) {
-            device->lpVtbl->Clear(device, 0, nullptr, D3DCLEAR_TARGET,
-                                  0xFF17365Du, 1.0f, 0);
-            HRESULT presentResult = device->lpVtbl->Present(device, nullptr, nullptr, nullptr, nullptr);
-            if (presentResult != 0) { g_error.store(presentResult); g_stage.store(-5); break; }
+            HRESULT clearResult = device->lpVtbl->Clear(
+                device, 0, nullptr, D3DCLEAR_TARGET, 0xFF17365Du, 1.0f, 0);
+            if (clearResult != 0) {
+                g_error.store(clearResult);
+                g_stage.store(-7);
+                break;
+            }
+            HRESULT presentResult = device->lpVtbl->Present(
+                device, nullptr, nullptr, nullptr, nullptr);
+            if (presentResult != 0) {
+                g_error.store(presentResult);
+                g_stage.store(-5);
+                break;
+            }
             g_frames.fetch_add(1);
             std::this_thread::sleep_for(std::chrono::milliseconds(16));
         }
