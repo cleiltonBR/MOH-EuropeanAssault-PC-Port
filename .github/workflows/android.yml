@@ -127,6 +127,24 @@ jobs:
             echo "Symbols not generated internally and not supplied by xbox_kernel:"
             cat "$RUNNER_TEMP/recomp-not-in-kernel.txt"
             echo
+            echo "Classification of remaining external symbols:"
+            while IFS= read -r symbol; do
+              case "$symbol" in
+                recomp_*) group="recompilation runtime support" ;;
+                sub_*) group="game-specific translated function / missing generated body" ;;
+                __*) group="compiler or C runtime" ;;
+                *) group="Android libc/libm candidate" ;;
+              esac
+              printf '%-48s %s\\n' "$group" "$symbol"
+            done < "$RUNNER_TEMP/recomp-external.txt"
+            echo
+            echo "Generated archive object(s) referencing each remaining symbol:"
+            "$NM" -A --undefined-only "$ARCHIVE" > "$RUNNER_TEMP/recomp-undefined-by-object.txt"
+            while IFS= read -r symbol; do
+              echo "[$symbol]"
+              grep -F " $symbol" "$RUNNER_TEMP/recomp-undefined-by-object.txt" || true
+            done < "$RUNNER_TEMP/recomp-external.txt"
+            echo
             echo "Dispatcher and entry-point declarations:"
             grep -R -n -E 'xbe_entry_point|recomp_dispatch_init|recomp_lookup' "$RECOMP_ROOT_DIR" --include='*.h' --include='*.c' | sed -E 's#^([^:]+):[0-9]+:#\1:#' | sort -u || true
           } > "$REPORT"
