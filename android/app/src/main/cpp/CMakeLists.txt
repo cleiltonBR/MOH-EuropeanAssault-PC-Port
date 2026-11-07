@@ -60,6 +60,9 @@ if(MOH_BUILD_GENERATED_RECOMP)
         "${RECOMP_ROOT_DIR}/recomp_stubs_unresolved.c"
     )
     add_library(moh_generated_recomp_arm64 STATIC ${MOH_RECOMP_GENERATED_SOURCES})
+    target_sources(moh_generated_recomp_arm64 PRIVATE
+        "${CMAKE_CURRENT_SOURCE_DIR}/recomp_android_hooks.c"
+    )
     target_include_directories(moh_generated_recomp_arm64 PRIVATE
         "${RECOMP_ROOT_DIR}"
         "${RECOMP_GEN_DIR}"
