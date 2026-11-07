@@ -8,7 +8,7 @@ int main(void) {
     __m128 r=_mm_add_ps(a,b);
     assert(r[0]==5.0f && r[1]==5.0f && r[2]==5.0f && r[3]==5.0f);
     r=_mm_shuffle_ps(a,b,0x1B);
-    assert(r[0]==4.0f && r[1]==3.0f && r[2]==1.0f && r[3]==2.0f);
+    assert(r[0]==4.0f && r[1]==3.0f && r[2]==3.0f && r[3]==4.0f);
     r=_mm_cmplt_ps(a,b);
     assert(_mm_movemask_ps(r)==0x3);
     r=_mm_unpacklo_ps(a,b);
