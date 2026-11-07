@@ -92,7 +92,7 @@ jobs:
             echo "Generated source files:"
             find "$RECOMP_ROOT_DIR" -type f \( -name '*.c' -o -name '*.h' \) -printf '%P\n' | sort
             echo
-            echo "Undefined symbols in the compiled generated-code archive:"
+            echo "Symbols referenced by generated archive but not defined inside it:"
             ARCHIVE="$(find android/app/.cxx -type f -name 'libmoh_generated_recomp_arm64.a' -print -quit)"
             if [ -z "$ARCHIVE" ]; then
               echo "Generated archive not found"
@@ -100,7 +100,13 @@ jobs:
             fi
             NM="$(find "$ANDROID_HOME/ndk/27.2.12479018/toolchains/llvm/prebuilt" -type f -name llvm-nm -print -quit)"
             test -n "$NM"
-            "$NM" -A -u "$ARCHIVE" | sort -u
+            "$NM" --undefined-only "$ARCHIVE" | awk '{print $NF}' | sort -u > "$RUNNER_TEMP/recomp-undefined.txt"
+            "$NM" --defined-only "$ARCHIVE" | awk '{print $NF}' | sort -u > "$RUNNER_TEMP/recomp-defined.txt"
+            comm -23 "$RUNNER_TEMP/recomp-undefined.txt" "$RUNNER_TEMP/recomp-defined.txt" > "$RUNNER_TEMP/recomp-external.txt"
+            echo "Unique undefined references across objects: $(wc -l < "$RUNNER_TEMP/recomp-undefined.txt")"
+            echo "Symbols defined inside generated archive: $(wc -l < "$RUNNER_TEMP/recomp-defined.txt")"
+            echo "True external unresolved symbols: $(wc -l < "$RUNNER_TEMP/recomp-external.txt")"
+            cat "$RUNNER_TEMP/recomp-external.txt"
             echo
             echo "Dispatcher and entry-point declarations:"
             grep -R -n -E 'xbe_entry_point|recomp_dispatch_init|recomp_lookup' "$RECOMP_ROOT_DIR" --include='*.h' --include='*.c' | sed -E 's#^([^:]+):[0-9]+:#\1:#' | sort -u || true
