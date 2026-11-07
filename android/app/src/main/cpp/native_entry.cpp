@@ -11,6 +11,9 @@
 #include <string>
 #include <mutex>
 #include <sys/stat.h>
+#include <cstdint>
+#include <fstream>
+#include <vector>
 
 extern "C" void d3d8_android_set_egl_surface(
     EGLDisplay display, EGLSurface surface, int width, int height);
@@ -23,6 +26,39 @@ std::atomic<int> g_error{0};
 std::atomic<unsigned long long> g_frames{0};
 std::mutex g_game_dir_mutex;
 std::string g_game_dir;
+uint32_t g_xbe_entry = 0;
+uint32_t g_xbe_kernel_thunk = 0;
+std::string g_xbe_validation = "XBE not inspected";
+
+uint32_t readLe32(const std::vector<uint8_t>& bytes, size_t offset) {
+    return static_cast<uint32_t>(bytes[offset]) |
+        (static_cast<uint32_t>(bytes[offset + 1]) << 8) |
+        (static_cast<uint32_t>(bytes[offset + 2]) << 16) |
+        (static_cast<uint32_t>(bytes[offset + 3]) << 24);
+}
+
+void inspectXbeLocked() {
+    g_xbe_entry = 0;
+    g_xbe_kernel_thunk = 0;
+    g_xbe_validation = "default.xbe not found";
+    std::ifstream input(g_game_dir + "/default.xbe", std::ios::binary | std::ios::ate);
+    if (!input) return;
+    const auto length = input.tellg();
+    if (length < 0x164) { g_xbe_validation = "XBE header truncated"; return; }
+    std::vector<uint8_t> header(0x164);
+    input.seekg(0);
+    if (!input.read(reinterpret_cast<char*>(header.data()), static_cast<std::streamsize>(header.size()))) {
+        g_xbe_validation = "Could not read XBE header"; return;
+    }
+    if (header[0] != 'X' || header[1] != 'B' || header[2] != 'E' || header[3] != 'H') {
+        g_xbe_validation = "Invalid XBEH signature"; return;
+    }
+    g_xbe_entry = readLe32(header, 0x128);
+    g_xbe_kernel_thunk = readLe32(header, 0x160);
+    g_xbe_validation = (g_xbe_entry && g_xbe_kernel_thunk)
+        ? "XBEH valid; entry and kernel thunk found"
+        : "XBEH valid, but entry point or kernel thunk is zero";
+}
 
 bool hasGameXbe() {
     std::lock_guard<std::mutex> lock(g_game_dir_mutex);
@@ -105,21 +141,23 @@ Java_com_cleiltonbr_moheuropeanassault_MainActivity_nativeSetGameDirectory(
         std::lock_guard<std::mutex> lock(g_game_dir_mutex);
         g_game_dir = chars ? chars : "";
     }
+    inspectXbeLocked();
     if (chars) env->ReleaseStringUTFChars(path, chars);
 }
 
 extern "C" JNIEXPORT jstring JNICALL
 Java_com_cleiltonbr_moheuropeanassault_MainActivity_nativeStatus(JNIEnv* env, jobject) {
     char message[320];
+    std::lock_guard<std::mutex> lock(g_game_dir_mutex);
     const bool xbeReady = hasGameXbe();
 #ifdef MOH_GENERATED_RECOMP_COMPILED
     snprintf(message, sizeof(message),
-        "D3D8 stage=%d frames=%llu error=0x%08X. ARM64 game code compiled. XBE %s; boot integration pending.",
+        "stage=%d frames=%llu error=0x%08X. XBE %s; %s; entry=0x%08X thunk=0x%08X.",
         g_stage.load(), g_frames.load(), static_cast<unsigned int>(g_error.load()),
-        xbeReady ? "imported" : "not imported");
+        xbeReady ? "imported" : "not imported", g_xbe_validation.c_str(), g_xbe_entry, g_xbe_kernel_thunk);
 #else
     snprintf(message, sizeof(message),
-        "D3D8 stage=%d frames=%llu error=0x%08X. XBE %s; generated game code not compiled.",
+        "stage=%d frames=%llu error=0x%08X. XBE %s; %s; entry=0x%08X thunk=0x%08X.",
         g_stage.load(), g_frames.load(), static_cast<unsigned int>(g_error.load()),
         xbeReady ? "imported" : "not imported");
 #endif
