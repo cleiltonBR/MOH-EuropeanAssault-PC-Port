@@ -1,7 +1,6 @@
 cmake_minimum_required(VERSION 3.22.1)
 project(moh_android LANGUAGES C CXX)
 
-# Build the portable host primitives used by the Xbox kernel/runtime.
 set(XBOXRECOMP_PLATFORM_DIR
     "${CMAKE_CURRENT_SOURCE_DIR}/../../../../../source/xboxrecomp-0.16.0/src/platform")
 
@@ -9,14 +8,11 @@ add_subdirectory(
     "${XBOXRECOMP_PLATFORM_DIR}"
     "${CMAKE_CURRENT_BINARY_DIR}/xboxrecomp-platform")
 
-# Compile the Xbox kernel/HLE sources against Android host primitives.
 get_filename_component(XBOXRECOMP_KERNEL_DIR "${XBOXRECOMP_PLATFORM_DIR}/../kernel" ABSOLUTE)
 add_subdirectory(
     "${XBOXRECOMP_KERNEL_DIR}"
     "${CMAKE_CURRENT_BINARY_DIR}/xboxrecomp-kernel")
 
-# Android uses the GLES3 branch of the shared D3D8 compatibility backend.
-# The EGL surface is owned by MainActivity and borrowed by D3D8 on its render thread.
 get_filename_component(XBOXRECOMP_D3D_DIR "${XBOXRECOMP_PLATFORM_DIR}/../d3d" ABSOLUTE)
 add_subdirectory(
     "${XBOXRECOMP_D3D_DIR}"
@@ -36,11 +32,10 @@ target_link_libraries(moh_android PRIVATE
 )
 target_compile_definitions(moh_android PRIVATE MOH_ANDROID_PLATFORM_LINKED=1)
 
-# Optional, isolated compilation of privately generated Xbox guest code.
-# Point RECOMP_GEN_DIR at a private directory containing recomp_*.c,
-# recomp_funcs.h and recomp_types.h. Nothing from that directory is copied
-# into this public repository or linked into the D3D8 smoke-test library.
-option(MOH_BUILD_GENERATED_RECOMP "Compile private generated game C sources for Android ARM64" OFF)
+# The private generated code is compiled for the actual APK, not as a
+# disconnected audit-only archive. The entry-point reference in native_entry.cpp
+# forces the linker to pull the generated XBE entry object into libmoh_android.
+option(MOH_BUILD_GENERATED_RECOMP "Build and link private generated game code for Android ARM64" OFF)
 set(RECOMP_GEN_DIR "" CACHE PATH "Private directory containing generated recompilation C sources")
 set(RECOMP_ROOT_DIR "" CACHE PATH "Private recompilation root containing dispatcher and unresolved stubs")
 if(MOH_BUILD_GENERATED_RECOMP)
@@ -53,7 +48,7 @@ if(MOH_BUILD_GENERATED_RECOMP)
     endif()
     file(GLOB MOH_RECOMP_GENERATED_SOURCES CONFIGURE_DEPENDS "${RECOMP_GEN_DIR}/*.c")
     if(NOT MOH_RECOMP_GENERATED_SOURCES)
-        message(FATAL_ERROR "No generated C sources found in RECOMP_GEN_DIR")
+        message(FATAL_ERROR "No generated game C sources found in RECOMP_GEN_DIR")
     endif()
     if(NOT RECOMP_ROOT_DIR OR NOT EXISTS "${RECOMP_ROOT_DIR}/recomp_dispatch.c"
        OR NOT EXISTS "${RECOMP_ROOT_DIR}/recomp_stubs_unresolved.c")
@@ -75,7 +70,8 @@ if(MOH_BUILD_GENERATED_RECOMP)
         -Wall -Wextra -Wno-parentheses-equality
     )
     target_link_libraries(moh_generated_recomp_arm64 PRIVATE m)
+    target_link_libraries(moh_android PRIVATE moh_generated_recomp_arm64)
+    target_compile_definitions(moh_android PRIVATE MOH_HAS_GENERATED_RECOMP=1)
 endif()
 
-# Build the portable SSE compatibility check as an independent ARM64 target.
 include("${CMAKE_CURRENT_SOURCE_DIR}/recomp_sse_compat_test.cmake")
