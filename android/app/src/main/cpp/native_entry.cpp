@@ -67,10 +67,10 @@ void renderLoop(ANativeWindow* window) {
     pp.BackBufferCount = 1;
     pp.Windowed = TRUE;
     pp.SwapEffect = D3DSWAPEFFECT_DISCARD;
-    HRESULT createResult = d3d->lpVtbl->CreateDevice(
-        d3d, 0, D3DDEVTYPE_HAL, nullptr, 0, &pp, &device);
+    HRESULT createResult = d3d ? d3d->lpVtbl->CreateDevice(
+        d3d, 0, 1u, nullptr, 0, &pp, &device) : static_cast<HRESULT>(-1);
 
-    if (createResult == D3D_OK && device) {
+    if (createResult == 0 && device) {
         while (g_running.load()) {
             device->lpVtbl->Clear(device, 0, nullptr, D3DCLEAR_TARGET,
                                   0xFF17365Du, 1.0f, 0);
@@ -87,6 +87,8 @@ void renderLoop(ANativeWindow* window) {
     ANativeWindow_release(window);
     g_running.store(false);
 }
+
+} // namespace
 
 extern "C" JNIEXPORT jstring JNICALL
 Java_com_cleiltonbr_moheuropeanassault_MainActivity_nativeStatus(JNIEnv* env, jobject) {
