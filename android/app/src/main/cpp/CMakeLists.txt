@@ -15,12 +15,19 @@ add_subdirectory(
     "${XBOXRECOMP_KERNEL_DIR}"
     "${CMAKE_CURRENT_BINARY_DIR}/xboxrecomp-kernel")
 
+# Android uses the GLES3 branch of the shared D3D8 compatibility backend.
+get_filename_component(XBOXRECOMP_D3D_DIR "${XBOXRECOMP_PLATFORM_DIR}/../d3d" ABSOLUTE)
+add_subdirectory(
+    "${XBOXRECOMP_D3D_DIR}"
+    "${CMAKE_CURRENT_BINARY_DIR}/xboxrecomp-d3d")
+
 add_library(moh_android SHARED native_entry.cpp)
 target_compile_features(moh_android PRIVATE cxx_std_17)
 target_compile_options(moh_android PRIVATE -Wall -Wextra -Wpedantic)
 target_link_libraries(moh_android PRIVATE
     platform
     xbox_kernel
+    xbox_d3d8
     android
     EGL
     GLESv3
