@@ -4,6 +4,8 @@
 #include <EGL/egl.h>
 #include <GLES3/gl3.h>
 #include "d3d8_xbox.h"
+#include "kernel.h"
+#include "xbox_memory_layout.h"
 #include <atomic>
 #include <chrono>
 #include <thread>
@@ -29,6 +31,9 @@ std::string g_game_dir;
 uint32_t g_xbe_entry = 0;
 uint32_t g_xbe_kernel_thunk = 0;
 std::string g_xbe_validation = "XBE not inspected";
+std::atomic<int> g_runtime_state{0};
+std::string g_runtime_message = "runtime not prepared";
+std::vector<uint8_t> g_xbe_image;
 
 uint32_t readLe32(const std::vector<uint8_t>& bytes, size_t offset) {
     return static_cast<uint32_t>(bytes[offset]) |
@@ -81,6 +86,53 @@ bool hasGameXbe() {
     const std::string path = g_game_dir + "/default.xbe";
     struct stat info{};
     return stat(path.c_str(), &info) == 0 && S_ISREG(info.st_mode);
+}
+
+bool prepareXboxRuntimeLocked() {
+    if (g_runtime_state.load() == 2) return true;
+    if (g_xbe_validation.find("decoded entry and kernel thunk") == std::string::npos) {
+        g_runtime_message = "XBE header validation failed";
+        g_runtime_state.store(-1);
+        return false;
+    }
+
+    const std::string xbePath = g_game_dir + "/default.xbe";
+    std::ifstream input(xbePath, std::ios::binary | std::ios::ate);
+    if (!input) {
+        g_runtime_message = "Could not open default.xbe";
+        g_runtime_state.store(-1);
+        return false;
+    }
+    const auto length = input.tellg();
+    if (length <= 0) {
+        g_runtime_message = "XBE file is empty";
+        g_runtime_state.store(-1);
+        return false;
+    }
+    g_xbe_image.resize(static_cast<size_t>(length));
+    input.seekg(0);
+    if (!input.read(reinterpret_cast<char*>(g_xbe_image.data()),
+                    static_cast<std::streamsize>(g_xbe_image.size()))) {
+        g_xbe_image.clear();
+        g_runtime_message = "Could not read complete XBE";
+        g_runtime_state.store(-1);
+        return false;
+    }
+
+    g_runtime_state.store(1);
+    if (!xbox_MemoryLayoutInit(g_xbe_image.data(), g_xbe_image.size())) {
+        g_xbe_image.clear();
+        g_runtime_message = "Xbox guest memory initialization failed";
+        g_runtime_state.store(-1);
+        return false;
+    }
+
+    xbox_kernel_init();
+    xbox_path_init(g_game_dir.c_str(), nullptr);
+    xbox_kernel_bridge_init();
+    g_runtime_message = "Guest memory and Xbox kernel bridge initialized; game entry not started";
+    g_runtime_state.store(2);
+    return true;
 }
 
 void renderLoop(ANativeWindow* window) {
@@ -154,22 +206,29 @@ Java_com_cleiltonbr_moheuropeanassault_MainActivity_nativeSetGameDirectory(
     const char* chars = path ? env->GetStringUTFChars(path, nullptr) : nullptr;
     {
         std::lock_guard<std::mutex> lock(g_game_dir_mutex);
+        if (g_runtime_state.load() == 2) {
+            xbox_kernel_shutdown();
+            xbox_MemoryLayoutShutdown();
+            g_xbe_image.clear();
+            g_runtime_state.store(0);
+        }
         g_game_dir = chars ? chars : "";
         inspectXbeLocked();
+        if (!g_game_dir.empty()) prepareXboxRuntimeLocked();
     }
     if (chars) env->ReleaseStringUTFChars(path, chars);
 }
 
 extern "C" JNIEXPORT jstring JNICALL
 Java_com_cleiltonbr_moheuropeanassault_MainActivity_nativeStatus(JNIEnv* env, jobject) {
-    char message[320];
+    char message[512];
     std::lock_guard<std::mutex> lock(g_game_dir_mutex);
     const bool xbeReady = hasGameXbe();
     snprintf(message, sizeof(message),
-        "stage=%d frames=%llu error=0x%08X. XBE %s; %s; entry=0x%08X thunk=0x%08X.",
+        "stage=%d frames=%llu error=0x%08X. XBE %s; %s; entry=0x%08X thunk=0x%08X. Runtime=%s (%d).",
         g_stage.load(), g_frames.load(), static_cast<unsigned int>(g_error.load()),
         xbeReady ? "imported" : "not imported", g_xbe_validation.c_str(),
-        g_xbe_entry, g_xbe_kernel_thunk);
+        g_xbe_entry, g_xbe_kernel_thunk, g_runtime_message.c_str(), g_runtime_state.load());
     return env->NewStringUTF(message);
 }
 
