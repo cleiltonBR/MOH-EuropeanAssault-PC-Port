@@ -27,6 +27,13 @@ int main(void) {
         memcpy(&low,&sd,sizeof(low));
         memcpy(&high,((const unsigned char *)&sd)+sizeof(low),sizeof(high));
         assert(low==value && high==0);
+        assert(_mm_cvttsd_si32(sd)==0);
+        assert(_mm_cvtsd_si32(sd)==0);
+        sd=_mm_set_sd(2147483647.0);
+        assert(_mm_cvttsd_si32(sd)==2147483647);
+        sd=_mm_set_sd(-2.9);
+        assert(_mm_cvttsd_si32(sd)==-2);
+        assert(_mm_cvtsd_si32(sd)==-3);
     }
     {
         float nan_value=NAN;
