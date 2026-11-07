@@ -54,8 +54,8 @@ static inline __m128 _mm_sqrt_ps(__m128 a){__m128 r;int i;for(i=0;i<4;i++)r[i]=s
 static inline __m128 _mm_set_ss(float x){return (__m128){x,0,0,0};}
 static inline __m128 _mm_set_sd(double x){uint64_t bits[2]={0,0};__m128 r;memcpy(&bits[0],&x,sizeof(x));memcpy(&r,bits,sizeof(r));return r;}
 static inline float _mm_cvtss_f32(__m128 a){return a[0];}
-static inline __m128 _mm_rcp_ss(__m128 a){return _mm_set_ss(1.0f/a[0]);}
-static inline __m128 _mm_rsqrt_ss(__m128 a){return _mm_set_ss(1.0f/sqrtf(a[0]));}
+static inline __m128 _mm_rcp_ss(__m128 a){__m128 r=a;r[0]=1.0f/a[0];return r;}
+static inline __m128 _mm_rsqrt_ss(__m128 a){__m128 r=a;r[0]=1.0f/sqrtf(a[0]);return r;}
 static inline __m128 _mm_rcp_ps(__m128 a){__m128 r;int i;for(i=0;i<4;i++)r[i]=1.0f/a[i];return r;}
 static inline __m128 _mm_rsqrt_ps(__m128 a){__m128 r;int i;for(i=0;i<4;i++)r[i]=1.0f/sqrtf(a[i]);return r;}
 static inline int _mm_movemask_ps(__m128 a){float av[4];int i,m=0;moh_sse_to_array(av,a);for(i=0;i<4;i++){uint32_t u;memcpy(&u,&av[i],4);m|=(int)((u>>31)&1u)<<i;}return m;}
