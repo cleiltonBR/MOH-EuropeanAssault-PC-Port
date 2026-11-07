@@ -4,6 +4,7 @@
 #include <EGL/egl.h>
 #include <GLES3/gl3.h>
 #include "d3d8_xbox.h"
+#include "kernel.h"
 #include <atomic>
 #include <chrono>
 #include <thread>
