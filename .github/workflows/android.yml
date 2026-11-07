@@ -102,11 +102,30 @@ jobs:
             test -n "$NM"
             "$NM" --undefined-only "$ARCHIVE" | awk '{print $NF}' | sort -u > "$RUNNER_TEMP/recomp-undefined.txt"
             "$NM" --defined-only "$ARCHIVE" | awk '{print $NF}' | sort -u > "$RUNNER_TEMP/recomp-defined.txt"
-            comm -23 "$RUNNER_TEMP/recomp-undefined.txt" "$RUNNER_TEMP/recomp-defined.txt" > "$RUNNER_TEMP/recomp-external.txt"
+
+            # Account for the Android kernel archive already built by this
+            # project. This separates symbols the existing runtime can supply
+            # from genuinely missing Android/runtime or game implementations.
+            KERNEL_ARCHIVE="$(find android/app/.cxx -type f -name 'libxbox_kernel.a' -print -quit)"
+            if [ -z "$KERNEL_ARCHIVE" ]; then
+              echo "Android xbox_kernel archive not found"
+              exit 1
+            fi
+            "$NM" --defined-only "$KERNEL_ARCHIVE" | awk '{print $NF}' | sort -u > "$RUNNER_TEMP/kernel-defined.txt"
+            cat "$RUNNER_TEMP/recomp-defined.txt" "$RUNNER_TEMP/kernel-defined.txt" | sort -u > "$RUNNER_TEMP/recomp-runtime-defined.txt"
+            comm -23 "$RUNNER_TEMP/recomp-undefined.txt" "$RUNNER_TEMP/recomp-runtime-defined.txt" > "$RUNNER_TEMP/recomp-external.txt"
+            comm -23 "$RUNNER_TEMP/recomp-undefined.txt" "$RUNNER_TEMP/recomp-defined.txt" > "$RUNNER_TEMP/recomp-outside-generated.txt"
+            comm -23 "$RUNNER_TEMP/recomp-outside-generated.txt" "$RUNNER_TEMP/kernel-defined.txt" > "$RUNNER_TEMP/recomp-not-in-kernel.txt"
             echo "Unique undefined references across objects: $(wc -l < "$RUNNER_TEMP/recomp-undefined.txt")"
             echo "Symbols defined inside generated archive: $(wc -l < "$RUNNER_TEMP/recomp-defined.txt")"
-            echo "True external unresolved symbols: $(wc -l < "$RUNNER_TEMP/recomp-external.txt")"
+            echo "Symbols supplied by existing Android kernel archive: $(wc -l < "$RUNNER_TEMP/kernel-defined.txt")"
+            echo "Remaining external symbols after generated + kernel definitions: $(wc -l < "$RUNNER_TEMP/recomp-external.txt")"
+            echo
+            echo "Remaining external symbols (runtime libraries or missing implementations):"
             cat "$RUNNER_TEMP/recomp-external.txt"
+            echo
+            echo "Symbols not generated internally and not supplied by xbox_kernel:"
+            cat "$RUNNER_TEMP/recomp-not-in-kernel.txt"
             echo
             echo "Dispatcher and entry-point declarations:"
             grep -R -n -E 'xbe_entry_point|recomp_dispatch_init|recomp_lookup' "$RECOMP_ROOT_DIR" --include='*.h' --include='*.c' | sed -E 's#^([^:]+):[0-9]+:#\1:#' | sort -u || true
