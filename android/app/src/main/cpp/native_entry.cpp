@@ -87,3 +87,30 @@ void renderLoop(ANativeWindow* window) {
     ANativeWindow_release(window);
     g_running.store(false);
 }
+
+extern "C" JNIEXPORT jstring JNICALL
+Java_com_cleiltonbr_moheuropeanassault_MainActivity_nativeStatus(JNIEnv* env, jobject) {
+    return env->NewStringUTF(
+        "Android ARM64 bootstrap. Xbox D3D8 compatibility backend test: creating "
+        "the D3D8 device on the Activity-owned EGL/GLES3 context and presenting "
+        "frames through the D3D8 API. Game code and assets are not connected yet.");
+}
+
+extern "C" JNIEXPORT void JNICALL
+Java_com_cleiltonbr_moheuropeanassault_MainActivity_nativeStart(
+    JNIEnv* env, jobject, jobject javaSurface) {
+    if (g_running.exchange(true)) return;
+    ANativeWindow* window = ANativeWindow_fromSurface(env, javaSurface);
+    if (!window) {
+        g_running.store(false);
+        return;
+    }
+    if (g_thread.joinable()) g_thread.join();
+    g_thread = std::thread(renderLoop, window);
+}
+
+extern "C" JNIEXPORT void JNICALL
+Java_com_cleiltonbr_moheuropeanassault_MainActivity_nativeStop(JNIEnv*, jobject) {
+    g_running.store(false);
+    if (g_thread.joinable()) g_thread.join();
+}
