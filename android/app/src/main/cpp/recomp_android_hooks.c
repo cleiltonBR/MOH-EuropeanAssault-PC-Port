@@ -6,7 +6,6 @@
  * desktop runtime state. Each hook here must preserve the original guest
  * behavior while using Android/POSIX host facilities.
  */
-#include <errno.h>
 #include <stddef.h>
 #include <stdint.h>
 #include <time.h>
@@ -37,8 +36,6 @@ void sub_002ECD1F_enter(void)
 
     if (++streak > 64u) {
         struct timespec delay = { 0, 1000000L };
-        while (nanosleep(&delay, &delay) != 0 && errno == EINTR) {
-            /* Resume the remaining part of the 1 ms yield after a signal. */
-        }
+        (void)nanosleep(&delay, NULL);
     }
 }
