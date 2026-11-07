@@ -24,8 +24,16 @@
 #include "d3d8_xbox.h"
 #include "d3d8_fvf.h"
 
+#ifdef __ANDROID__
+#include <EGL/egl.h>
+#include <GLES3/gl3.h>
+#ifndef GL_BGRA
+#define GL_BGRA 0x80E1
+#endif
+#else
 #include <SDL.h>
 #include <epoxy/gl.h>
+#endif
 
 #include <stdio.h>
 #include <stdlib.h>
@@ -47,19 +55,36 @@
 
 /* Window title for the SDL window, configurable per title via
  * xbox_D3D8SetWindowTitle(). Default is a generic name. */
+#ifndef __ANDROID__
 static const char *g_window_title = "Xbox Game";
+#else
+static EGLDisplay g_android_display = EGL_NO_DISPLAY;
+static EGLSurface g_android_surface = EGL_NO_SURFACE;
+void d3d8_android_set_egl_surface(EGLDisplay display, EGLSurface surface,
+                                  int width, int height)
+{
+    g_android_display = display;
+    g_android_surface = surface;
+    g.backbuf_w = width;
+    g.backbuf_h = height;
+}
+#endif
 
+#ifndef __ANDROID__
 void xbox_D3D8SetWindowTitle(const char *title)
 {
     g_window_title = (title && title[0]) ? title : "Xbox Game";
 }
+#endif
 #define MAX_TSS   33
 #define MAX_TSU   8     /* texture stages */
 
 typedef struct {
     /* Host */
+#ifndef __ANDROID__
     SDL_Window      *window;
     SDL_GLContext    glctx;
+#endif
     int              backbuf_w;
     int              backbuf_h;
 
@@ -174,7 +199,12 @@ static GLenum gl_cmp(DWORD f)
 /* ======================================================================== */
 
 static const char *VS_SRC =
+#ifdef __ANDROID__
+    "#version 300 es\n"
+    "precision highp float;\n"
+#else
     "#version 330 core\n"
+#endif
     "layout(location=0) in vec4 a_pos;\n"
     "layout(location=1) in vec4 a_color;\n"
     "layout(location=2) in vec2 a_uv;\n"
@@ -195,7 +225,12 @@ static const char *VS_SRC =
     "}\n";
 
 static const char *FS_SRC =
+#ifdef __ANDROID__
+    "#version 300 es\n"
+    "precision mediump float;\n"
+#else
     "#version 330 core\n"
+#endif
     "in  vec4 v_color;\n"
     "in  vec2 v_uv;\n"
     "uniform int       u_use_tex;\n"
@@ -548,15 +583,18 @@ static HRESULT __stdcall dev_Present(IDirect3DDevice8 *s, const RECT *src, const
                                      HWND hwnd, void *dirty)
 {
     (void)s;(void)src;(void)dst;(void)hwnd;(void)dirty;
+#ifdef __ANDROID__
+    if (g_android_display != EGL_NO_DISPLAY &&
+        g_android_surface != EGL_NO_SURFACE)
+        eglSwapBuffers(g_android_display, g_android_surface);
+#else
     SDL_GL_SwapWindow(g.window);
-    /* Pump events so the window stays responsive. Quit closes the window
-     * but leaves the process running until the game's loop notices. */
     SDL_Event ev;
     while (SDL_PollEvent(&ev)) {
-        if (ev.type == SDL_QUIT) {
+        if (ev.type == SDL_QUIT)
             fprintf(stderr, "[d3d8_gl] window close requested\n");
-        }
     }
+#endif
     return D3D_OK;
 }
 
@@ -722,7 +760,11 @@ static void update_mvp(DWORD fvf)
     mat4_mul(&wv, &g.m_world, &g.m_view);
     mat4_mul(&mvp, &wv, &g.m_proj);
     /* GL is column-major; D3D MATRIX is row-major. Tell GL to transpose. */
+#ifdef __ANDROID__
+    glUniformMatrix4fv(g.u_mvp, 1, GL_FALSE, (const GLfloat *)mvp.m);
+#else
     glUniformMatrix4fv(g.u_mvp, 1, GL_TRUE, (const GLfloat *)mvp.m);
+#endif
     glUniform1i(g.u_use_xform, d3d8_fvf_transformed(fvf) ? 0 : 1);
 }
 
@@ -975,27 +1017,33 @@ static HRESULT __stdcall d3d_CreateDevice(IDirect3D8 *s, UINT adapter, DWORD dev
     (void)s; (void)adapter; (void)devtype; (void)hwnd; (void)flags;
     if (!pp || !pPP) return D3DERR_INVALIDCALL;
 
-    /* Initialise SDL video + GL 3.3 core context. Default SIGINT/SIGTERM
-     * stay: SDL's own handlers only post an SDL_QUIT. */
-    SDL_SetHint(SDL_HINT_NO_SIGNAL_HANDLERS, "1");
-    if (!SDL_WasInit(SDL_INIT_VIDEO)) SDL_InitSubSystem(SDL_INIT_VIDEO);
-
+#ifdef __ANDROID__
+    if (g_android_display == EGL_NO_DISPLAY ||
+        g_android_surface == EGL_NO_SURFACE ||
+        glGetString(GL_VERSION) == NULL) {
+        fprintf(stderr, "[d3d8_gl] Android EGL/GLES context is not attached\n");
+        return D3DERR_INVALIDCALL;
+    }
     g.backbuf_w = (int)pPP->BackBufferWidth;
     g.backbuf_h = (int)pPP->BackBufferHeight;
     if (g.backbuf_w <= 0) g.backbuf_w = 640;
     if (g.backbuf_h <= 0) g.backbuf_h = 480;
-
+#else
+    SDL_SetHint(SDL_HINT_NO_SIGNAL_HANDLERS, "1");
+    if (!SDL_WasInit(SDL_INIT_VIDEO)) SDL_InitSubSystem(SDL_INIT_VIDEO);
+    g.backbuf_w = (int)pPP->BackBufferWidth;
+    g.backbuf_h = (int)pPP->BackBufferHeight;
+    if (g.backbuf_w <= 0) g.backbuf_w = 640;
+    if (g.backbuf_h <= 0) g.backbuf_h = 480;
     SDL_GL_SetAttribute(SDL_GL_CONTEXT_MAJOR_VERSION, 3);
     SDL_GL_SetAttribute(SDL_GL_CONTEXT_MINOR_VERSION, 3);
-    SDL_GL_SetAttribute(SDL_GL_CONTEXT_PROFILE_MASK,  SDL_GL_CONTEXT_PROFILE_CORE);
+    SDL_GL_SetAttribute(SDL_GL_CONTEXT_PROFILE_MASK, SDL_GL_CONTEXT_PROFILE_CORE);
     SDL_GL_SetAttribute(SDL_GL_DOUBLEBUFFER, 1);
-    SDL_GL_SetAttribute(SDL_GL_DEPTH_SIZE,  24);
+    SDL_GL_SetAttribute(SDL_GL_DEPTH_SIZE, 24);
     SDL_GL_SetAttribute(SDL_GL_STENCIL_SIZE, 8);
-
     g.window = SDL_CreateWindow(g_window_title,
-                                SDL_WINDOWPOS_UNDEFINED, SDL_WINDOWPOS_UNDEFINED,
-                                g.backbuf_w, g.backbuf_h,
-                                SDL_WINDOW_OPENGL | SDL_WINDOW_SHOWN);
+        SDL_WINDOWPOS_UNDEFINED, SDL_WINDOWPOS_UNDEFINED,
+        g.backbuf_w, g.backbuf_h, SDL_WINDOW_OPENGL | SDL_WINDOW_SHOWN);
     if (!g.window) {
         fprintf(stderr, "[d3d8_gl] SDL_CreateWindow failed: %s\n", SDL_GetError());
         return D3DERR_INVALIDCALL;
@@ -1009,6 +1057,7 @@ static HRESULT __stdcall d3d_CreateDevice(IDirect3D8 *s, UINT adapter, DWORD dev
     }
     SDL_GL_MakeCurrent(g.window, g.glctx);
     SDL_GL_SetSwapInterval(1);
+#endif
 
     fprintf(stderr, "[d3d8_gl] GL %s / GLSL %s\n",
             glGetString(GL_VERSION), glGetString(GL_SHADING_LANGUAGE_VERSION));
