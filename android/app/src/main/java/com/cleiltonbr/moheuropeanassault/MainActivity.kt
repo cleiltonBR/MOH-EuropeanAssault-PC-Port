@@ -28,6 +28,7 @@ class MainActivity : Activity(), SurfaceHolder.Callback {
     private external fun nativeShutdownGame()
 
     private lateinit var status: TextView
+    private var gameSurface: Surface? = null
     private val handler = Handler(Looper.getMainLooper())
     private val importRequest = 401
     private val refreshStatus = object : Runnable {
@@ -86,7 +87,9 @@ class MainActivity : Activity(), SurfaceHolder.Callback {
             val rootId = DocumentsContract.getTreeDocumentId(tree)
             copyTreeDocument(tree, rootId, gameDir)
             nativeSetGameDirectory(gameDir.absolutePath)
+            nativeStop()
             val prepared = nativePrepareGame()
+            gameSurface?.let { if (it.isValid) nativeStart(it) }
             Toast.makeText(this,
                 if (prepared) "XBE carregado; memória Xbox e kernel inicializados."
                 else "Arquivos copiados, mas a preparação do XBE falhou. Confira o status na tela.",
@@ -122,12 +125,13 @@ class MainActivity : Activity(), SurfaceHolder.Callback {
         } ?: throw IllegalStateException("Não foi possível ler a pasta selecionada")
     }
 
-    override fun surfaceCreated(holder: SurfaceHolder) { nativeStart(holder.surface) }
+    override fun surfaceCreated(holder: SurfaceHolder) { gameSurface = holder.surface; nativeStart(holder.surface) }
     override fun surfaceChanged(holder: SurfaceHolder, format: Int, width: Int, height: Int) {
+        gameSurface = holder.surface
         nativeStop()
         nativeStart(holder.surface)
     }
-    override fun surfaceDestroyed(holder: SurfaceHolder) { nativeStop() }
+    override fun surfaceDestroyed(holder: SurfaceHolder) { gameSurface = null; nativeStop() }
 
     override fun onDestroy() {
         handler.removeCallbacks(refreshStatus)
