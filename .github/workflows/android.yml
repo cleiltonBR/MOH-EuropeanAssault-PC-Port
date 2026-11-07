@@ -145,6 +145,26 @@ jobs:
               grep -F " $symbol" "$RUNNER_TEMP/recomp-undefined-by-object.txt" || true
             done < "$RUNNER_TEMP/recomp-external.txt"
             echo
+            echo "Source-tree occurrence inventory for unresolved symbols (paths and counts only):"
+            python3 - "$RECOMP_ROOT_DIR" "$RUNNER_TEMP/recomp-external.txt" <<'PY'
+          import pathlib, re, sys
+          root = pathlib.Path(sys.argv[1])
+          symbols = pathlib.Path(sys.argv[2]).read_text().splitlines()
+          files = [p for p in root.rglob("*") if p.is_file() and p.suffix.lower() in {".c", ".h", ".cc", ".cpp", ".hpp"}]
+          for symbol in symbols:
+              hits = []
+              pattern = re.compile(r"\\b" + re.escape(symbol) + r"\\b")
+              for path in files:
+                  try:
+                      data = path.read_text(errors="ignore")
+                  except OSError:
+                      continue
+                  count = len(pattern.findall(data))
+                  if count:
+                      hits.append(f"{path.relative_to(root)} ({count})")
+              print(f"[{symbol}] " + ("; ".join(hits) if hits else "not present in extracted source tree"))
+          PY
+            echo
             echo "Dispatcher and entry-point declarations:"
             grep -R -n -E 'xbe_entry_point|recomp_dispatch_init|recomp_lookup' "$RECOMP_ROOT_DIR" --include='*.h' --include='*.c' | sed -E 's#^([^:]+):[0-9]+:#\1:#' | sort -u || true
           } > "$REPORT"
