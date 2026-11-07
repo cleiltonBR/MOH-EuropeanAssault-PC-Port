@@ -9,6 +9,15 @@
 #include <stdint.h>
 #include <string.h>
 
+/* MSVC compiler barrier used by generated XMM guest-memory helpers. */
+#ifndef _ReadWriteBarrier
+#  if defined(__GNUC__) || defined(__clang__)
+#    define _ReadWriteBarrier() __asm__ __volatile__("" ::: "memory")
+#  else
+#    define _ReadWriteBarrier() ((void)0)
+#  endif
+#endif
+
 #if defined(__GNUC__) || defined(__clang__)
 typedef float __m128 __attribute__((vector_size(16), aligned(16)));
 #else
