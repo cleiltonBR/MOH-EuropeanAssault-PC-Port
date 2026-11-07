@@ -53,11 +53,27 @@ void inspectXbeLocked() {
     if (header[0] != 'X' || header[1] != 'B' || header[2] != 'E' || header[3] != 'H') {
         g_xbe_validation = "Invalid XBEH signature"; return;
     }
-    g_xbe_entry = readLe32(header, 0x128);
-    g_xbe_kernel_thunk = readLe32(header, 0x160);
+    // XBE stores these VAs XOR-encoded. Match the parser's retail/debug
+    // selection against the image range before decoding the thunk address.
+    const uint32_t base = readLe32(header, 0x104);
+    const uint32_t imageSize = readLe32(header, 0x10C);
+    const uint32_t entryRaw = readLe32(header, 0x128);
+    const uint32_t thunkRaw = readLe32(header, 0x158);
+    const uint32_t retailEntry = entryRaw ^ 0xA8FC57ABu;
+    const uint32_t debugEntry = entryRaw ^ 0x94859D4Bu;
+    const uint64_t imageEnd = static_cast<uint64_t>(base) + imageSize;
+    const bool retail = retailEntry >= base && retailEntry < imageEnd;
+    const bool debug = debugEntry >= base && debugEntry < imageEnd;
+    if (!retail && !debug) {
+        g_xbe_validation = "XBEH valid, but encoded entry is outside image";
+        return;
+    }
+    const bool isDebug = !retail && debug;
+    g_xbe_entry = isDebug ? debugEntry : retailEntry;
+    g_xbe_kernel_thunk = thunkRaw ^ (isDebug ? 0xEFB1F152u : 0x5B6D40B6u);
     g_xbe_validation = (g_xbe_entry && g_xbe_kernel_thunk)
-        ? "XBEH valid; entry and kernel thunk found"
-        : "XBEH valid, but entry point or kernel thunk is zero";
+        ? "XBEH valid; decoded entry and kernel thunk"
+        : "XBEH valid, but decoded entry point or kernel thunk is zero";
 }
 
 bool hasGameXbe() {
