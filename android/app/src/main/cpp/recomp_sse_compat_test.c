@@ -19,5 +19,23 @@ int main(void) {
         assert(_mm_movemask_ps(z)==0x5);
     }
     assert(_mm_cvttss_si32(_mm_set_ss(-2.9f))==-2);
+    {
+        const double value=1.0/3.0;
+        __m128 sd=_mm_set_sd(value);
+        double low=0.0;
+        uint64_t high=1;
+        memcpy(&low,&sd,sizeof(low));
+        memcpy(&high,((const unsigned char *)&sd)+sizeof(low),sizeof(high));
+        assert(low==value && high==0);
+    }
+    {
+        float nan_value=NAN;
+        __m128 n={nan_value,1.0f,nan_value,2.0f};
+        __m128 one={1.0f,nan_value,nan_value,2.0f};
+        assert(_mm_movemask_ps(_mm_cmpunord_ps(n,one))==0x7);
+        assert(_mm_movemask_ps(_mm_cmpneq_ps(n,one))==0x7);
+    }
+    assert(_mm_cvtss_si32(_mm_set_ss(2.5f))==2);
+    assert(_mm_cvtss_si32(_mm_set_ss(3.5f))==4);
     return 0;
 }
