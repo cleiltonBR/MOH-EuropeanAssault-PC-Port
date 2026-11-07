@@ -30,6 +30,9 @@
 #ifndef GL_BGRA
 #define GL_BGRA 0x80E1
 #endif
+/* Desktop GL entry points with GLES-compatible equivalents. */
+#define glClearDepth glClearDepthf
+#define glDepthRange glDepthRangef
 #else
 #include <SDL.h>
 #include <epoxy/gl.h>
