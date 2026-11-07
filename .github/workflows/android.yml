@@ -1,4 +1,4 @@
-name: Android ARM64 bootstrap
+name: Android ARM64 game integration
 
 on:
   push:
@@ -19,9 +19,44 @@ permissions:
 jobs:
   build-debug-apk:
     runs-on: ubuntu-latest
+    env:
+      MOH_PRIVATE_REPO_TOKEN: ${{ secrets.MOH_PRIVATE_REPO_TOKEN }}
     steps:
-      - name: Checkout
+      - name: Checkout Android port
         uses: actions/checkout@v4
+
+      - name: Require private generated game sources
+        run: |
+          if [ -z "$MOH_PRIVATE_REPO_TOKEN" ]; then
+            echo "::error::MOH_PRIVATE_REPO_TOKEN is required to build the game-integrated APK."
+            exit 1
+          fi
+
+      - name: Checkout private generated game code
+        uses: actions/checkout@v4
+        with:
+          repository: cleiltonBR/MOH-EuropeanAssault-Private
+          ref: main
+          token: ${{ secrets.MOH_PRIVATE_REPO_TOKEN }}
+          path: private-generated
+          persist-credentials: false
+
+      - name: Prepare generated game sources
+        run: |
+          test -f private-generated/recompilation.zip
+          mkdir -p "$RUNNER_TEMP/moh-recomp"
+          unzip -q private-generated/recompilation.zip -d "$RUNNER_TEMP/moh-recomp"
+          GEN_HEADER="$(find "$RUNNER_TEMP/moh-recomp" -type f -name recomp_funcs.h -print -quit)"
+          test -n "$GEN_HEADER"
+          GEN_DIR="$(dirname "$GEN_HEADER")"
+          test -f "$GEN_DIR/recomp_types.h"
+          DISPATCH_FILE="$(find "$RUNNER_TEMP/moh-recomp" -type f -name recomp_dispatch.c -print -quit)"
+          STUBS_FILE="$(find "$RUNNER_TEMP/moh-recomp" -type f -name recomp_stubs_unresolved.c -print -quit)"
+          test -n "$DISPATCH_FILE"
+          test -n "$STUBS_FILE"
+          test "$(dirname "$DISPATCH_FILE")" = "$(dirname "$STUBS_FILE")"
+          echo "RECOMP_GEN_DIR=$GEN_DIR" >> "$GITHUB_ENV"
+          echo "RECOMP_ROOT_DIR=$(dirname "$DISPATCH_FILE")" >> "$GITHUB_ENV"
 
       - name: Set up JDK 17
         uses: actions/setup-java@v4
@@ -42,13 +77,13 @@ jobs:
         with:
           gradle-version: '8.9'
 
-      - name: Build ARM64 debug APK
+      - name: Build ARM64 APK with generated game code linked
         run: gradle --no-daemon -p android :app:assembleDebug
 
-      - name: Upload debug APK
+      - name: Upload game-integrated debug APK
         uses: actions/upload-artifact@v4
         with:
-          name: moh-european-assault-android-arm64-debug
+          name: moh-european-assault-android-arm64-game-integrated
           path: android/app/build/outputs/apk/debug/app-debug.apk
           if-no-files-found: error
 
@@ -80,154 +115,3 @@ jobs:
 
       - name: Run SSE compatibility behavior tests
         run: /tmp/recomp_sse_compat_test
-
-# Private generated-code compilation is validated only when the repository secret is configured.
-  test-generated-recomp-android-arm64:
-    runs-on: ubuntu-latest
-    env:
-      MOH_PRIVATE_REPO_TOKEN: ${{ secrets.MOH_PRIVATE_REPO_TOKEN }}
-    steps:
-      - name: Checkout public Android port
-        uses: actions/checkout@v4
-
-      - name: Explain missing private repository access
-        if: env.MOH_PRIVATE_REPO_TOKEN == ''
-        run: echo "::warning::Generated-code ARM64 build skipped. Add the MOH_PRIVATE_REPO_TOKEN Actions secret with read-only access to cleiltonBR/MOH-EuropeanAssault-Private."
-
-      - name: Checkout private generated-code archive
-        if: env.MOH_PRIVATE_REPO_TOKEN != ''
-        uses: actions/checkout@v4
-        with:
-          repository: cleiltonBR/MOH-EuropeanAssault-Private
-          ref: main
-          token: ${{ secrets.MOH_PRIVATE_REPO_TOKEN }}
-          path: private-generated
-          persist-credentials: false
-
-      - name: Extract private generated sources
-        if: env.MOH_PRIVATE_REPO_TOKEN != ''
-        run: |
-          test -f private-generated/recompilation.zip
-          mkdir -p "$RUNNER_TEMP/moh-recomp"
-          unzip -q private-generated/recompilation.zip -d "$RUNNER_TEMP/moh-recomp"
-          GEN_HEADER="$(find "$RUNNER_TEMP/moh-recomp" -type f -name recomp_funcs.h -print -quit)"
-          test -n "$GEN_HEADER"
-          GEN_DIR="$(dirname "$GEN_HEADER")"
-          test -n "$GEN_DIR"
-          test -f "$GEN_DIR/recomp_types.h"
-          DISPATCH_FILE="$(find "$RUNNER_TEMP/moh-recomp" -type f -name recomp_dispatch.c -print -quit)"
-          STUBS_FILE="$(find "$RUNNER_TEMP/moh-recomp" -type f -name recomp_stubs_unresolved.c -print -quit)"
-          test -n "$DISPATCH_FILE"
-          test -n "$STUBS_FILE"
-          test "$(dirname "$DISPATCH_FILE")" = "$(dirname "$STUBS_FILE")"
-          echo "RECOMP_GEN_DIR=$GEN_DIR" >> "$GITHUB_ENV"
-          echo "RECOMP_ROOT_DIR=$(dirname "$DISPATCH_FILE")" >> "$GITHUB_ENV"
-
-      - name: Set up Android NDK and CMake
-        if: env.MOH_PRIVATE_REPO_TOKEN != ''
-        uses: android-actions/setup-android@v3
-        with:
-          packages: 'ndk;27.2.12479018 cmake;3.22.1'
-
-      - name: Configure generated ARM64 target
-        if: env.MOH_PRIVATE_REPO_TOKEN != ''
-        run: |
-          NDK="$ANDROID_HOME/ndk/27.2.12479018"
-          cmake -S android/app/src/main/cpp -B "$RUNNER_TEMP/moh-generated-build"             -DCMAKE_TOOLCHAIN_FILE="$NDK/build/cmake/android.toolchain.cmake"             -DANDROID_ABI=arm64-v8a             -DANDROID_PLATFORM=android-26             -DMOH_BUILD_GENERATED_RECOMP=ON             -DRECOMP_GEN_DIR="$RECOMP_GEN_DIR" \
-            -DRECOMP_ROOT_DIR="$RECOMP_ROOT_DIR"
-
-      - name: Compile all generated game C units for Android ARM64
-        if: env.MOH_PRIVATE_REPO_TOKEN != ''
-        run: cmake --build "$RUNNER_TEMP/moh-generated-build" --target moh_generated_recomp_arm64 --parallel 2
-
-      - name: Audit generated ARM64 symbols and entry points
-        if: env.MOH_PRIVATE_REPO_TOKEN != ''
-        run: |
-          NDK="$ANDROID_HOME/ndk/27.2.12479018"
-          LLVM_NM="$NDK/toolchains/llvm/prebuilt/linux-x86_64/bin/llvm-nm"
-          ARCHIVE="$(find "$RUNNER_TEMP/moh-generated-build" -name 'libmoh_generated_recomp_arm64.a' -print -quit)"
-          test -n "$ARCHIVE"
-          test -x "$LLVM_NM"
-          "$LLVM_NM" -g --defined-only "$ARCHIVE" > "$RUNNER_TEMP/recomp-defined.txt"
-          "$LLVM_NM" -u "$ARCHIVE" > "$RUNNER_TEMP/recomp-undefined.txt"
-          echo "Generated archive: $(basename "$ARCHIVE")"
-          echo "Defined global symbols: $(wc -l < "$RUNNER_TEMP/recomp-defined.txt")"
-          echo "Undefined symbol references: $(wc -l < "$RUNNER_TEMP/recomp-undefined.txt")"
-          echo "Candidate dispatcher / initialization symbols:"
-          grep -Ei 'recomp|(^|_)(init|start|main|entry|xbe)(_|$)' "$RUNNER_TEMP/recomp-defined.txt" | head -n 100 || true
-          echo "Unresolved external symbol sample:"
-          sed -n '1,100p' "$RUNNER_TEMP/recomp-undefined.txt"
-
-      - name: Classify unresolved symbols and inspect entry declarations
-        if: env.MOH_PRIVATE_REPO_TOKEN != ''
-        run: |
-          NDK="$ANDROID_HOME/ndk/27.2.12479018"
-          LLVM_NM="$NDK/toolchains/llvm/prebuilt/linux-x86_64/bin/llvm-nm"
-          ARCHIVE="$(find "$RUNNER_TEMP/moh-generated-build" -name 'libmoh_generated_recomp_arm64.a' -print -quit)"
-          "$LLVM_NM" -g --defined-only --format=posix "$ARCHIVE" | awk '{print $1}' | sort -u > "$RUNNER_TEMP/recomp-defined-unique.txt"
-          "$LLVM_NM" -u --format=posix "$ARCHIVE" | awk '{print $1}' | sort -u > "$RUNNER_TEMP/recomp-undefined-unique.txt"
-          comm -23 "$RUNNER_TEMP/recomp-undefined-unique.txt" "$RUNNER_TEMP/recomp-defined-unique.txt" > "$RUNNER_TEMP/recomp-unresolved-final.txt"
-          echo "Unique unresolved symbols after resolving references within the archive: $(wc -l < "$RUNNER_TEMP/recomp-unresolved-final.txt")"
-          echo "Unresolved symbol categories / sample:"
-          sed -n '1,160p' "$RUNNER_TEMP/recomp-unresolved-final.txt"
-          echo "Dispatcher and entry declarations:"
-          grep -nE 'xbe_entry_point|recomp_dispatch_init|recomp_get_count|recomp_lookup|recomp_call_all' "$RECOMP_GEN_DIR/recomp_funcs.h" "$RECOMP_ROOT_DIR/recomp_funcs.h" 2>/dev/null || true
-
-      - name: Compare generated dependencies with Android runtime libraries
-        if: env.MOH_PRIVATE_REPO_TOKEN != ''
-        run: |
-          NDK="$ANDROID_HOME/ndk/27.2.12479018"
-          LLVM_NM="$NDK/toolchains/llvm/prebuilt/linux-x86_64/bin/llvm-nm"
-          BUILD="$RUNNER_TEMP/moh-generated-build"
-          cmake --build "$BUILD" --target platform xbox_kernel xbox_d3d8 --parallel 2
-          find "$BUILD" -type f \( -name 'libplatform.a' -o -name 'libxbox_kernel.a' -o -name 'libxbox_d3d8.a' \) -print
-          : > "$RUNNER_TEMP/runtime-defined.txt"
-          while IFS= read -r lib; do
-            "$LLVM_NM" -g --defined-only --format=posix "$lib" | awk '{print $1}' >> "$RUNNER_TEMP/runtime-defined.txt"
-          done < <(find "$BUILD" -type f \( -name 'libplatform.a' -o -name 'libxbox_kernel.a' -o -name 'libxbox_d3d8.a' \))
-          sort -u "$RUNNER_TEMP/runtime-defined.txt" -o "$RUNNER_TEMP/runtime-defined.txt"
-          comm -12 "$RUNNER_TEMP/recomp-unresolved-final.txt" "$RUNNER_TEMP/runtime-defined.txt" > "$RUNNER_TEMP/runtime-satisfied.txt"
-          comm -23 "$RUNNER_TEMP/recomp-unresolved-final.txt" "$RUNNER_TEMP/runtime-defined.txt" > "$RUNNER_TEMP/runtime-still-missing.txt"
-          echo "Unresolved symbols supplied by Android runtime libraries: $(wc -l < "$RUNNER_TEMP/runtime-satisfied.txt")"
-          cat "$RUNNER_TEMP/runtime-satisfied.txt"
-          echo "Unresolved symbols still requiring runtime/stub implementation: $(wc -l < "$RUNNER_TEMP/runtime-still-missing.txt")"
-          cat "$RUNNER_TEMP/runtime-still-missing.txt"
-          echo "Dispatcher API signatures:"
-          grep -nE 'recomp_dispatch_init|recomp_call_all|recomp_get_count|recomp_lookup|xbe_entry_point' "$RECOMP_GEN_DIR/recomp_funcs.h" "$RECOMP_ROOT_DIR/recomp_dispatch.c" | head -n 40 || true
-          UNRESOLVED_COUNT="$(wc -l < "$RUNNER_TEMP/recomp-unresolved-final.txt" | tr -d ' ')"
-          RUNTIME_SATISFIED_COUNT="$(wc -l < "$RUNNER_TEMP/runtime-satisfied.txt" | tr -d ' ')"
-          STILL_MISSING_COUNT="$(wc -l < "$RUNNER_TEMP/runtime-still-missing.txt" | tr -d ' ')"
-          grep -E '^(sub_|recomp_)' "$RUNNER_TEMP/runtime-still-missing.txt" > "$RUNNER_TEMP/game-runtime-symbols.txt" || true
-          GAME_RUNTIME_COUNT="$(wc -l < "$RUNNER_TEMP/game-runtime-symbols.txt" | tr -d ' ')"
-          if grep -qE '^[[:space:]]*void xbe_entry_point\(void\);' "$RECOMP_GEN_DIR/recomp_funcs.h"; then
-            ENTRY_STATUS="present"
-          else
-            ENTRY_STATUS="not found"
-          fi
-          {
-            echo "## Android generated-code integration audit"
-            echo
-            echo "- Generated ARM64 archive: built"
-            echo "- XBE entry declaration: $ENTRY_STATUS"
-            echo "- Unique unresolved references before runtime libraries: $UNRESOLVED_COUNT"
-            echo "- Symbols supplied by current Android runtime archives: $RUNTIME_SATISFIED_COUNT"
-            echo "- Symbols still unresolved after archive comparison: $STILL_MISSING_COUNT"
-            echo "- Game/dispatcher symbols in that remaining set: $GAME_RUNTIME_COUNT"
-            echo
-            echo "### Game/dispatcher symbols still needing implementation or linkage"
-            if [ "$GAME_RUNTIME_COUNT" -gt 0 ]; then
-              sed 's/^/- /' "$RUNNER_TEMP/game-runtime-symbols.txt"
-            else
-              echo "- None detected by the current name-based classifier."
-            fi
-            echo
-            echo "This is a compile/link-dependency audit, not proof that the game boots."
-          } | tee "$RUNNER_TEMP/moh-android-integration-audit.md" >> "$GITHUB_STEP_SUMMARY"
-          cp "$RUNNER_TEMP/moh-android-integration-audit.md" "$RUNNER_TEMP/moh-android-integration-audit-upload.md"
-      - name: Upload generated integration audit
-        if: env.MOH_PRIVATE_REPO_TOKEN != ''
-        uses: actions/upload-artifact@v4
-        with:
-          name: moh-android-generated-integration-audit
-          path: ${{ runner.temp }}/moh-android-integration-audit-upload.md
-          if-no-files-found: error
