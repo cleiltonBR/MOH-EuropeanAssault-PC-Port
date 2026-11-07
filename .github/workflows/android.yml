@@ -117,7 +117,7 @@ jobs:
         if: env.MOH_PRIVATE_REPO_TOKEN != ''
         uses: android-actions/setup-android@v3
         with:
-          packages: 'ndk;27.2.12479018' 
+          packages: 'ndk;27.2.12479018 cmake;3.22.1'
 
       - name: Configure generated ARM64 target
         if: env.MOH_PRIVATE_REPO_TOKEN != ''
