@@ -8,6 +8,9 @@
 #include <chrono>
 #include <thread>
 #include <cstdio>
+#include <string>
+#include <mutex>
+#include <sys/stat.h>
 
 extern "C" void d3d8_android_set_egl_surface(
     EGLDisplay display, EGLSurface surface, int width, int height);
@@ -18,6 +21,16 @@ std::thread g_thread;
 std::atomic<int> g_stage{0};
 std::atomic<int> g_error{0};
 std::atomic<unsigned long long> g_frames{0};
+std::mutex g_game_dir_mutex;
+std::string g_game_dir;
+
+bool hasGameXbe() {
+    std::lock_guard<std::mutex> lock(g_game_dir_mutex);
+    if (g_game_dir.empty()) return false;
+    const std::string path = g_game_dir + "/default.xbe";
+    struct stat info{};
+    return stat(path.c_str(), &info) == 0 && S_ISREG(info.st_mode);
+}
 
 void renderLoop(ANativeWindow* window) {
     g_stage.store(1); g_error.store(0); g_frames.store(0);
@@ -27,22 +40,15 @@ void renderLoop(ANativeWindow* window) {
         g_running.store(false);
         return;
     }
-
     const EGLint configAttrs[] = {
-        EGL_SURFACE_TYPE, EGL_WINDOW_BIT,
-        EGL_RENDERABLE_TYPE, EGL_OPENGL_ES3_BIT,
-        EGL_RED_SIZE, 8, EGL_GREEN_SIZE, 8, EGL_BLUE_SIZE, 8, EGL_ALPHA_SIZE, 8,
-        EGL_NONE
+        EGL_SURFACE_TYPE, EGL_WINDOW_BIT, EGL_RENDERABLE_TYPE, EGL_OPENGL_ES3_BIT,
+        EGL_RED_SIZE, 8, EGL_GREEN_SIZE, 8, EGL_BLUE_SIZE, 8, EGL_ALPHA_SIZE, 8, EGL_NONE
     };
     EGLConfig config = nullptr;
     EGLint configCount = 0;
     if (!eglChooseConfig(display, configAttrs, &config, 1, &configCount) || configCount < 1) {
-        eglTerminate(display);
-        ANativeWindow_release(window);
-        g_running.store(false);
-        return;
+        eglTerminate(display); ANativeWindow_release(window); g_running.store(false); return;
     }
-
     const EGLint contextAttrs[] = {EGL_CONTEXT_CLIENT_VERSION, 3, EGL_NONE};
     EGLContext context = eglCreateContext(display, config, EGL_NO_CONTEXT, contextAttrs);
     EGLSurface surface = eglCreateWindowSurface(display, config, window, nullptr);
@@ -50,19 +56,13 @@ void renderLoop(ANativeWindow* window) {
         !eglMakeCurrent(display, surface, surface, context)) {
         if (surface != EGL_NO_SURFACE) eglDestroySurface(display, surface);
         if (context != EGL_NO_CONTEXT) eglDestroyContext(display, context);
-        eglTerminate(display);
-        ANativeWindow_release(window);
-        g_running.store(false);
-        return;
+        eglTerminate(display); ANativeWindow_release(window); g_running.store(false); return;
     }
-
     GLint width = 0, height = 0;
     eglQuerySurface(display, surface, EGL_WIDTH, &width);
     eglQuerySurface(display, surface, EGL_HEIGHT, &height);
     d3d8_android_set_egl_surface(display, surface, width, height);
     g_stage.store(4);
-
-    /* Keep the existing D3D8 backend check until the XBE boot path is ready. */
     g_stage.store(5);
     IDirect3D8* d3d = xbox_Direct3DCreate8(0);
     IDirect3DDevice8* device = nullptr;
@@ -74,29 +74,19 @@ void renderLoop(ANativeWindow* window) {
     pp.SwapEffect = D3DSWAPEFFECT_DISCARD;
     HRESULT createResult = d3d ? d3d->lpVtbl->CreateDevice(
         d3d, 0, 1u, nullptr, 0, &pp, &device) : static_cast<HRESULT>(-1);
-
     if (createResult == 0 && device) {
         g_stage.store(6);
         while (g_running.load()) {
             HRESULT clearResult = device->lpVtbl->Clear(
                 device, 0, nullptr, D3DCLEAR_TARGET, 0xFF17365Du, 1.0f, 0);
-            if (clearResult != 0) {
-                g_error.store(clearResult);
-                g_stage.store(-7);
-                break;
-            }
+            if (clearResult != 0) { g_error.store(clearResult); g_stage.store(-7); break; }
             HRESULT presentResult = device->lpVtbl->Present(
                 device, nullptr, nullptr, nullptr, nullptr);
-            if (presentResult != 0) {
-                g_error.store(presentResult);
-                g_stage.store(-5);
-                break;
-            }
+            if (presentResult != 0) { g_error.store(presentResult); g_stage.store(-5); break; }
             g_frames.fetch_add(1);
             std::this_thread::sleep_for(std::chrono::milliseconds(16));
         }
     } else { g_error.store(createResult); g_stage.store(-6); }
-
     d3d8_android_set_egl_surface(EGL_NO_DISPLAY, EGL_NO_SURFACE, 0, 0);
     eglMakeCurrent(display, EGL_NO_SURFACE, EGL_NO_SURFACE, EGL_NO_CONTEXT);
     eglDestroySurface(display, surface);
@@ -107,17 +97,31 @@ void renderLoop(ANativeWindow* window) {
 }
 } // namespace
 
+extern "C" JNIEXPORT void JNICALL
+Java_com_cleiltonbr_moheuropeanassault_MainActivity_nativeSetGameDirectory(
+    JNIEnv* env, jobject, jstring path) {
+    const char* chars = path ? env->GetStringUTFChars(path, nullptr) : nullptr;
+    {
+        std::lock_guard<std::mutex> lock(g_game_dir_mutex);
+        g_game_dir = chars ? chars : "";
+    }
+    if (chars) env->ReleaseStringUTFChars(path, chars);
+}
+
 extern "C" JNIEXPORT jstring JNICALL
 Java_com_cleiltonbr_moheuropeanassault_MainActivity_nativeStatus(JNIEnv* env, jobject) {
-    char message[256];
+    char message[320];
+    const bool xbeReady = hasGameXbe();
 #ifdef MOH_GENERATED_RECOMP_COMPILED
     snprintf(message, sizeof(message),
-        "D3D8 stage=%d frames=%llu error=0x%08X. Generated game code compiled for ARM64; XBE boot integration pending.",
-        g_stage.load(), g_frames.load(), static_cast<unsigned int>(g_error.load()));
+        "D3D8 stage=%d frames=%llu error=0x%08X. ARM64 game code compiled. XBE %s; boot integration pending.",
+        g_stage.load(), g_frames.load(), static_cast<unsigned int>(g_error.load()),
+        xbeReady ? "imported" : "not imported");
 #else
     snprintf(message, sizeof(message),
-        "D3D8 stage=%d frames=%llu error=0x%08X. Generated game code not compiled.",
-        g_stage.load(), g_frames.load(), static_cast<unsigned int>(g_error.load()));
+        "D3D8 stage=%d frames=%llu error=0x%08X. XBE %s; generated game code not compiled.",
+        g_stage.load(), g_frames.load(), static_cast<unsigned int>(g_error.load()),
+        xbeReady ? "imported" : "not imported");
 #endif
     return env->NewStringUTF(message);
 }
@@ -127,10 +131,7 @@ Java_com_cleiltonbr_moheuropeanassault_MainActivity_nativeStart(
     JNIEnv* env, jobject, jobject javaSurface) {
     if (g_running.exchange(true)) return;
     ANativeWindow* window = ANativeWindow_fromSurface(env, javaSurface);
-    if (!window) {
-        g_running.store(false);
-        return;
-    }
+    if (!window) { g_running.store(false); return; }
     if (g_thread.joinable()) g_thread.join();
     g_thread = std::thread(renderLoop, window);
 }
