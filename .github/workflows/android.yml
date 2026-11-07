@@ -51,3 +51,16 @@ jobs:
           name: moh-european-assault-android-arm64-debug
           path: android/app/build/outputs/apk/debug/app-debug.apk
           if-no-files-found: error
+
+  test-sse-compat-host:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Compile ARM64 SSE compatibility tests with strict warnings
+        run: |
+          cc -std=c11 -Wall -Wextra -Werror android/app/src/main/cpp/recomp_sse_compat_test.c -lm -o /tmp/recomp_sse_compat_test
+
+      - name: Run SSE compatibility behavior tests
+        run: /tmp/recomp_sse_compat_test
