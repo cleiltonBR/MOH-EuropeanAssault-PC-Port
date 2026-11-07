@@ -157,3 +157,18 @@ jobs:
           grep -Ei 'recomp|(^|_)(init|start|main|entry|xbe)(_|$)' "$RUNNER_TEMP/recomp-defined.txt" | head -n 100 || true
           echo "Unresolved external symbol sample:"
           sed -n '1,100p' "$RUNNER_TEMP/recomp-undefined.txt"
+
+      - name: Classify unresolved symbols and inspect entry declarations
+        if: env.MOH_PRIVATE_REPO_TOKEN != ''
+        run: |
+          NDK="$ANDROID_HOME/ndk/27.2.12479018"
+          LLVM_NM="$NDK/toolchains/llvm/prebuilt/linux-x86_64/bin/llvm-nm"
+          ARCHIVE="$(find "$RUNNER_TEMP/moh-generated-build" -name 'libmoh_generated_recomp_arm64.a' -print -quit)"
+          "$LLVM_NM" -g --defined-only --format=posix "$ARCHIVE" | awk '{print $1}' | sort -u > "$RUNNER_TEMP/recomp-defined-unique.txt"
+          "$LLVM_NM" -u --format=posix "$ARCHIVE" | awk '{print $1}' | sort -u > "$RUNNER_TEMP/recomp-undefined-unique.txt"
+          comm -23 "$RUNNER_TEMP/recomp-undefined-unique.txt" "$RUNNER_TEMP/recomp-defined-unique.txt" > "$RUNNER_TEMP/recomp-unresolved-final.txt"
+          echo "Unique unresolved symbols after resolving references within the archive: $(wc -l < "$RUNNER_TEMP/recomp-unresolved-final.txt")"
+          echo "Unresolved symbol categories / sample:"
+          sed -n '1,160p' "$RUNNER_TEMP/recomp-unresolved-final.txt"
+          echo "Dispatcher and entry declarations:"
+          grep -nE 'xbe_entry_point|recomp_dispatch_init|recomp_get_count|recomp_lookup|recomp_call_all' "$RECOMP_GEN_DIR/recomp_funcs.h" "$RECOMP_ROOT_DIR/recomp_funcs.h" 2>/dev/null || true
