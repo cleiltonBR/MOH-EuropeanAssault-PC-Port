@@ -89,8 +89,8 @@ jobs:
             echo "Generated recompilation linkage inventory"
             echo "This report contains symbol metadata only; no source code or build logs."
             echo
-            echo "Generated source files:"
-            find "$RECOMP_ROOT_DIR" -type f \( -name '*.c' -o -name '*.h' \) -printf '%P\n' | sort
+            echo "All extracted C/C++ source and header files:"
+            find "$RUNNER_TEMP/moh-recomp" -type f \( -name '*.c' -o -name '*.h' -o -name '*.cc' -o -name '*.cpp' -o -name '*.hpp' \) -printf '%P\n' | sort
             echo
             echo "Symbols referenced by generated archive but not defined inside it:"
             ARCHIVE="$(find android/app/.cxx -type f -name 'libmoh_generated_recomp_arm64.a' -print -quit)"
@@ -146,9 +146,10 @@ jobs:
             done < "$RUNNER_TEMP/recomp-external.txt"
             echo
             echo "Source-tree occurrence inventory for unresolved symbols (paths and counts only):"
-            python3 - "$RECOMP_ROOT_DIR" "$RUNNER_TEMP/recomp-external.txt" <<'PY'
+            python3 - "$RUNNER_TEMP/moh-recomp" "$RUNNER_TEMP/recomp-external.txt" "$RECOMP_ROOT_DIR" <<'PY'
           import pathlib, re, sys
           root = pathlib.Path(sys.argv[1])
+          generated_root = pathlib.Path(sys.argv[3])
           symbols = pathlib.Path(sys.argv[2]).read_text().splitlines()
           files = [p for p in root.rglob("*") if p.is_file() and p.suffix.lower() in {".c", ".h", ".cc", ".cpp", ".hpp"}]
           for symbol in symbols:
@@ -163,6 +164,15 @@ jobs:
                   if count:
                       hits.append(f"{path.relative_to(root)} ({count})")
               print(f"[{symbol}] " + ("; ".join(hits) if hits else "not present in extracted source tree"))
+          print("\\nRuntime helper declarations (declaration lines only):")
+          helpers = {"recomp_icall_fail_log", "recomp_icall_not_code_log", "recomp_lookup_manual", "recomp_unimpl"}
+          for header in generated_root.rglob("*.h"):
+              try:
+                  for line_no, line in enumerate(header.read_text(errors="ignore").splitlines(), 1):
+                      if any(re.search(r"\\b" + re.escape(name) + r"\\b", line) for name in helpers):
+                          print("{}:{}: {}".format(header.relative_to(root), line_no, line.strip()))
+              except OSError:
+                  pass
           PY
             echo
             echo "Dispatcher and entry-point declarations:"
