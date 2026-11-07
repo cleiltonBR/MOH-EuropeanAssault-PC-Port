@@ -29,6 +29,7 @@ std::string g_game_dir;
 uint32_t g_xbe_entry = 0;
 uint32_t g_xbe_kernel_thunk = 0;
 std::string g_xbe_validation = "XBE not inspected";
+std::vector<uint8_t> g_xbe_image;
 
 uint32_t readLe32(const std::vector<uint8_t>& bytes, size_t offset) {
     return static_cast<uint32_t>(bytes[offset]) |
@@ -44,12 +45,20 @@ void inspectXbeLocked() {
     std::ifstream input(g_game_dir + "/default.xbe", std::ios::binary | std::ios::ate);
     if (!input) return;
     const auto length = input.tellg();
+    g_xbe_image.clear();
     if (length < 0x164) { g_xbe_validation = "XBE header truncated"; return; }
-    std::vector<uint8_t> header(0x164);
-    input.seekg(0);
-    if (!input.read(reinterpret_cast<char*>(header.data()), static_cast<std::streamsize>(header.size()))) {
-        g_xbe_validation = "Could not read XBE header"; return;
+    // Load the complete XBE into host memory now, but do not map guest RAM or
+    // invoke kernel startup from the JNI directory callback.
+    if (static_cast<uint64_t>(length) > 512ull * 1024ull * 1024ull) {
+        g_xbe_validation = "XBE exceeds 512 MiB safety limit"; return;
     }
+    g_xbe_image.resize(static_cast<size_t>(length));
+    input.seekg(0);
+    if (!input.read(reinterpret_cast<char*>(g_xbe_image.data()), length)) {
+        g_xbe_image.clear();
+        g_xbe_validation = "Could not read complete XBE image"; return;
+    }
+    std::vector<uint8_t> header(g_xbe_image.begin(), g_xbe_image.begin() + 0x164);
     if (header[0] != 'X' || header[1] != 'B' || header[2] != 'E' || header[3] != 'H') {
         g_xbe_validation = "Invalid XBEH signature"; return;
     }
@@ -162,13 +171,13 @@ Java_com_cleiltonbr_moheuropeanassault_MainActivity_nativeSetGameDirectory(
 
 extern "C" JNIEXPORT jstring JNICALL
 Java_com_cleiltonbr_moheuropeanassault_MainActivity_nativeStatus(JNIEnv* env, jobject) {
-    char message[320];
+    char message[384];
     std::lock_guard<std::mutex> lock(g_game_dir_mutex);
     const bool xbeReady = hasGameXbe();
     snprintf(message, sizeof(message),
-        "stage=%d frames=%llu error=0x%08X. XBE %s; %s; entry=0x%08X thunk=0x%08X.",
+        "stage=%d frames=%llu error=0x%08X. XBE %s (%zu bytes loaded); %s; entry=0x%08X thunk=0x%08X.",
         g_stage.load(), g_frames.load(), static_cast<unsigned int>(g_error.load()),
-        xbeReady ? "imported" : "not imported", g_xbe_validation.c_str(),
+        xbeReady ? "imported" : "not imported", g_xbe_image.size(), g_xbe_validation.c_str(),
         g_xbe_entry, g_xbe_kernel_thunk);
     return env->NewStringUTF(message);
 }
