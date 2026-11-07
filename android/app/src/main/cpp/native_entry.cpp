@@ -15,9 +15,6 @@
 #include <fstream>
 #include <vector>
 
-// Narrow C ABI declaration avoids importing the full Xbox kernel header into JNI.
-extern "C" void xbox_path_init(const char* game_dir, const char* save_dir);
-
 extern "C" void d3d8_android_set_egl_surface(
     EGLDisplay display, EGLSurface surface, int width, int height);
 
@@ -29,7 +26,6 @@ std::atomic<int> g_error{0};
 std::atomic<unsigned long long> g_frames{0};
 std::mutex g_game_dir_mutex;
 std::string g_game_dir;
-std::string g_save_dir;
 uint32_t g_xbe_entry = 0;
 uint32_t g_xbe_kernel_thunk = 0;
 std::string g_xbe_validation = "XBE not inspected";
@@ -159,18 +155,6 @@ Java_com_cleiltonbr_moheuropeanassault_MainActivity_nativeSetGameDirectory(
     {
         std::lock_guard<std::mutex> lock(g_game_dir_mutex);
         g_game_dir = chars ? chars : "";
-        g_save_dir.clear();
-        if (!g_game_dir.empty()) {
-            const size_t separator = g_game_dir.find_last_of('/');
-            const std::string app_files = separator == std::string::npos
-                ? g_game_dir : g_game_dir.substr(0, separator);
-            g_save_dir = app_files + "/xboxdata";
-            mkdir(g_save_dir.c_str(), 0700);
-            // Configure Xbox path translation independently of guest-memory
-            // startup. This keeps game assets and persistent saves in the
-            // Android app sandbox without changing the stable renderer.
-            xbox_path_init(g_game_dir.c_str(), g_save_dir.c_str());
-        }
         inspectXbeLocked();
     }
     if (chars) env->ReleaseStringUTFChars(path, chars);
