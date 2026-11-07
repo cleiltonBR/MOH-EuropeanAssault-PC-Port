@@ -153,7 +153,7 @@ jobs:
           files = [p for p in root.rglob("*") if p.is_file() and p.suffix.lower() in {".c", ".h", ".cc", ".cpp", ".hpp"}]
           for symbol in symbols:
               hits = []
-              pattern = re.compile(r"\\b" + re.escape(symbol) + r"\\b")
+              pattern = re.compile(r"\b" + re.escape(symbol) + r"\b")
               for path in files:
                   try:
                       data = path.read_text(errors="ignore")
