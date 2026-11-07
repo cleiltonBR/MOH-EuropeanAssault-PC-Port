@@ -2,6 +2,10 @@ plugins {
     id("com.android.application")
     id("org.jetbrains.kotlin.android")
 }
+
+val recompGenDir = System.getenv("RECOMP_GEN_DIR")
+val recompRootDir = System.getenv("RECOMP_ROOT_DIR")
+
 android {
     namespace = "com.cleiltonbr.moheuropeanassault"
     compileSdk = 35
@@ -10,10 +14,23 @@ android {
         applicationId = "com.cleiltonbr.moheuropeanassault"
         minSdk = 26
         targetSdk = 35
-        versionCode = 1
-        versionName = "0.1.0-android-bootstrap"
+        versionCode = 2
+        versionName = "0.2.0-android-game-code-linked"
         ndk { abiFilters += "arm64-v8a" }
-        externalNativeBuild { cmake { cppFlags += listOf("-std=c++17", "-Wall", "-Wextra") } }
+        externalNativeBuild {
+            cmake {
+                cppFlags += listOf("-std=c++17", "-Wall", "-Wextra")
+                if (!recompGenDir.isNullOrBlank() && !recompRootDir.isNullOrBlank()) {
+                    arguments += listOf(
+                        "-DMOH_BUILD_GENERATED_RECOMP=ON",
+                        "-DRECOMP_GEN_DIR=$recompGenDir",
+                        "-DRECOMP_ROOT_DIR=$recompRootDir"
+                    )
+                } else {
+                    arguments += "-DMOH_BUILD_GENERATED_RECOMP=OFF"
+                }
+            }
+        }
     }
     externalNativeBuild {
         cmake { path = file("src/main/cpp/CMakeLists.txt"); version = "3.22.1" }
