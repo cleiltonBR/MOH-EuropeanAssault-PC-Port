@@ -194,3 +194,40 @@ jobs:
           cat "$RUNNER_TEMP/runtime-still-missing.txt"
           echo "Dispatcher API signatures:"
           grep -nE 'recomp_dispatch_init|recomp_call_all|recomp_get_count|recomp_lookup|xbe_entry_point' "$RECOMP_GEN_DIR/recomp_funcs.h" "$RECOMP_ROOT_DIR/recomp_dispatch.c" | head -n 40 || true
+          UNRESOLVED_COUNT="$(wc -l < "$RUNNER_TEMP/recomp-unresolved-final.txt" | tr -d ' ')"
+          RUNTIME_SATISFIED_COUNT="$(wc -l < "$RUNNER_TEMP/runtime-satisfied.txt" | tr -d ' ')"
+          STILL_MISSING_COUNT="$(wc -l < "$RUNNER_TEMP/runtime-still-missing.txt" | tr -d ' ')"
+          grep -E '^(sub_|recomp_)' "$RUNNER_TEMP/runtime-still-missing.txt" > "$RUNNER_TEMP/game-runtime-symbols.txt" || true
+          GAME_RUNTIME_COUNT="$(wc -l < "$RUNNER_TEMP/game-runtime-symbols.txt" | tr -d ' ')"
+          if grep -qE '^[[:space:]]*void xbe_entry_point\(void\);' "$RECOMP_GEN_DIR/recomp_funcs.h"; then
+            ENTRY_STATUS="present"
+          else
+            ENTRY_STATUS="not found"
+          fi
+          {
+            echo "## Android generated-code integration audit"
+            echo
+            echo "- Generated ARM64 archive: built"
+            echo "- XBE entry declaration: $ENTRY_STATUS"
+            echo "- Unique unresolved references before runtime libraries: $UNRESOLVED_COUNT"
+            echo "- Symbols supplied by current Android runtime archives: $RUNTIME_SATISFIED_COUNT"
+            echo "- Symbols still unresolved after archive comparison: $STILL_MISSING_COUNT"
+            echo "- Game/dispatcher symbols in that remaining set: $GAME_RUNTIME_COUNT"
+            echo
+            echo "### Game/dispatcher symbols still needing implementation or linkage"
+            if [ "$GAME_RUNTIME_COUNT" -gt 0 ]; then
+              sed 's/^/- /' "$RUNNER_TEMP/game-runtime-symbols.txt"
+            else
+              echo "- None detected by the current name-based classifier."
+            fi
+            echo
+            echo "This is a compile/link-dependency audit, not proof that the game boots."
+          } | tee "$RUNNER_TEMP/moh-android-integration-audit.md" >> "$GITHUB_STEP_SUMMARY"
+          cp "$RUNNER_TEMP/moh-android-integration-audit.md" "$RUNNER_TEMP/moh-android-integration-audit-upload.md"
+      - name: Upload generated integration audit
+        if: env.MOH_PRIVATE_REPO_TOKEN != ''
+        uses: actions/upload-artifact@v4
+        with:
+          name: moh-android-generated-integration-audit
+          path: ${{ runner.temp }}/moh-android-integration-audit-upload.md
+          if-no-files-found: error
