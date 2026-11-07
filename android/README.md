@@ -75,3 +75,21 @@ secure memory clearing, and anonymous shared-memory file descriptors.
 Bionic does not provide `pthread_cancel`; callers must not assume forced
 thread termination is available. The Android NDK build validates compilation
 of the host/kernel layers only, not the complete game runtime.
+
+
+## Recompiled game integration audit (2026-11-06)
+
+The private recompilation package has now been inspected without adding its contents to this repository. It contains 22 generated function chunks (recomp_0000.c through recomp_0021.c), recomp_funcs.h, recomp_types.h, recomp_dispatch.c, and recomp_stubs_unresolved.c. The generated declarations report 21,142 translated functions; the dispatch table reports 21,149 guest addresses; 255 call targets are represented by unresolved stubs. These counts describe generated output, not a successfully running game.
+
+### ARM64 blockers confirmed in the generated interface
+
+- recomp_types.h includes xmmintrin.h and emmintrin.h only for x86/x64. Its register model uses __m128 and SSE intrinsics for load/store, arithmetic, comparisons, shuffle/unpack, reciprocal, reciprocal-square-root, movemask and float/double-to-integer conversions. Android arm64-v8a therefore needs a deliberate ARM NEON compatibility implementation (or a portable scalar implementation for correctness tests); simply compiling the generated C files will not work.
+- The PC executable entry point in source/mygame/src/main.c includes Windows headers and uses Win32 APIs, SEH, Windows thread/context functions, and Windows-specific environment/thread-local helpers. It is a reference for initialization order, not a valid Android entry point.
+- The current Android shared library is intentionally separate from source/mygame; no generated C source is currently compiled into the APK.
+- The D3D8 EGL/GLES device test remains a separate validated component. Game integration must call into it through a narrow interface and must not replace or bypass its EGL surface, device creation, clear, or present path.
+
+### Safe integration boundary
+
+The next code milestone is a standalone, opt-in ARM64 compatibility test target for the generated register/SSE helper layer. It must be kept separate from moh_android and xbox_d3d8 until it passes compile-time and behavioral tests. The test should compare the ARM64 implementation against known x86/SSE reference vectors for lane ordering, NaN comparisons, masks, rounding/truncation, reciprocal behavior and shuffle immediates. Only after those tests pass should the generated chunks be compiled as a separate static target. The Android game bootstrap, XBE loader, kernel bridge, file I/O, input/audio and NV2A draw submission remain subsequent integration stages.
+
+**Do not add the private generated C files, XBE, or game assets to this repository.** Use a user-approved private build input when the generated target is ready. Keep the existing D3D8 runtime target and its on-device regression test unchanged throughout this work.
