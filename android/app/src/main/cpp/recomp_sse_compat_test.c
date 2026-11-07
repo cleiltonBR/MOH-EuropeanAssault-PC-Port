@@ -42,6 +42,13 @@ int main(void) {
         assert(_mm_movemask_ps(_mm_cmpunord_ps(n,one))==0x7);
         assert(_mm_movemask_ps(_mm_cmpneq_ps(n,one))==0x7);
     }
+    {
+        __m128 scalar={4.0f,11.0f,22.0f,33.0f};
+        r=_mm_rcp_ss(scalar);
+        assert(r[0]==0.25f && r[1]==11.0f && r[2]==22.0f && r[3]==33.0f);
+        r=_mm_rsqrt_ss(scalar);
+        assert(r[0]==0.5f && r[1]==11.0f && r[2]==22.0f && r[3]==33.0f);
+    }
     assert(_mm_cvtss_si32(_mm_set_ss(2.5f))==2);
     assert(_mm_cvtss_si32(_mm_set_ss(3.5f))==4);
     return 0;
