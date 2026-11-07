@@ -4,6 +4,8 @@
 #include <EGL/egl.h>
 #include <GLES3/gl3.h>
 #include "d3d8_xbox.h"
+#include "kernel.h"
+#include "xbox_memory_layout.h"
 #include <atomic>
 #include <chrono>
 #include <thread>
@@ -11,6 +13,7 @@
 #include <string>
 #include <mutex>
 #include <sys/stat.h>
+#include <vector>
 
 extern "C" void d3d8_android_set_egl_surface(
     EGLDisplay display, EGLSurface surface, int width, int height);
@@ -21,24 +24,35 @@ std::thread g_thread;
 std::atomic<int> g_stage{0};
 std::atomic<int> g_error{0};
 std::atomic<unsigned long long> g_frames{0};
-std::mutex g_game_dir_mutex;
+std::mutex g_game_mutex;
 std::string g_game_dir;
+bool g_memory_ready = false;
+bool g_kernel_ready = false;
 
 bool hasGameXbe() {
-    std::lock_guard<std::mutex> lock(g_game_dir_mutex);
+    std::lock_guard<std::mutex> lock(g_game_mutex);
     if (g_game_dir.empty()) return false;
-    const std::string path = g_game_dir + "/default.xbe";
     struct stat info{};
+    const std::string path = g_game_dir + "/default.xbe";
     return stat(path.c_str(), &info) == 0 && S_ISREG(info.st_mode);
+}
+
+void shutdownGameLocked() {
+    if (g_kernel_ready) {
+        xbox_kernel_shutdown();
+        g_kernel_ready = false;
+    }
+    if (g_memory_ready) {
+        xbox_MemoryLayoutShutdown();
+        g_memory_ready = false;
+    }
 }
 
 void renderLoop(ANativeWindow* window) {
     g_stage.store(1); g_error.store(0); g_frames.store(0);
     EGLDisplay display = eglGetDisplay(EGL_DEFAULT_DISPLAY);
     if (display == EGL_NO_DISPLAY || !eglInitialize(display, nullptr, nullptr)) {
-        ANativeWindow_release(window);
-        g_running.store(false);
-        return;
+        ANativeWindow_release(window); g_running.store(false); return;
     }
     const EGLint configAttrs[] = {
         EGL_SURFACE_TYPE, EGL_WINDOW_BIT, EGL_RENDERABLE_TYPE, EGL_OPENGL_ES3_BIT,
@@ -63,7 +77,6 @@ void renderLoop(ANativeWindow* window) {
     eglQuerySurface(display, surface, EGL_HEIGHT, &height);
     d3d8_android_set_egl_surface(display, surface, width, height);
     g_stage.store(4);
-    g_stage.store(5);
     IDirect3D8* d3d = xbox_Direct3DCreate8(0);
     IDirect3DDevice8* device = nullptr;
     D3DPRESENT_PARAMETERS pp{};
@@ -102,27 +115,65 @@ Java_com_cleiltonbr_moheuropeanassault_MainActivity_nativeSetGameDirectory(
     JNIEnv* env, jobject, jstring path) {
     const char* chars = path ? env->GetStringUTFChars(path, nullptr) : nullptr;
     {
-        std::lock_guard<std::mutex> lock(g_game_dir_mutex);
+        std::lock_guard<std::mutex> lock(g_game_mutex);
         g_game_dir = chars ? chars : "";
     }
     if (chars) env->ReleaseStringUTFChars(path, chars);
+}
+
+extern "C" JNIEXPORT jboolean JNICALL
+Java_com_cleiltonbr_moheuropeanassault_MainActivity_nativePrepareGame(JNIEnv*, jobject) {
+    if (g_running.load()) return JNI_FALSE;
+    std::lock_guard<std::mutex> lock(g_game_mutex);
+    shutdownGameLocked();
+    const std::string path = g_game_dir + "/default.xbe";
+    FILE* file = fopen(path.c_str(), "rb");
+    if (!file) { g_stage.store(-10); return JNI_FALSE; }
+    if (fseek(file, 0, SEEK_END) != 0) { fclose(file); g_stage.store(-11); return JNI_FALSE; }
+    const long length = ftell(file);
+    if (length < 0x180 || fseek(file, 0, SEEK_SET) != 0) {
+        fclose(file); g_stage.store(-12); return JNI_FALSE;
+    }
+    std::vector<unsigned char> xbe(static_cast<size_t>(length));
+    const size_t read = fread(xbe.data(), 1, xbe.size(), file);
+    fclose(file);
+    if (read != xbe.size() || xbe[0] != 'X' || xbe[1] != 'B' || xbe[2] != 'E' || xbe[3] != 'H') {
+        g_stage.store(-13); return JNI_FALSE;
+    }
+    if (!xbox_MemoryLayoutInit(xbe.data(), xbe.size())) {
+        g_stage.store(-14); return JNI_FALSE;
+    }
+    g_memory_ready = true;
+    xbox_kernel_init();
+    g_kernel_ready = true;
+    xbox_path_init(g_game_dir.c_str(), nullptr);
+    xbox_kernel_bridge_init();
+    g_stage.store(20);
+    g_error.store(0);
+    return JNI_TRUE;
+}
+
+extern "C" JNIEXPORT void JNICALL
+Java_com_cleiltonbr_moheuropeanassault_MainActivity_nativeShutdownGame(JNIEnv*, jobject) {
+    std::lock_guard<std::mutex> lock(g_game_mutex);
+    shutdownGameLocked();
+    if (g_stage.load() >= 20) g_stage.store(0);
 }
 
 extern "C" JNIEXPORT jstring JNICALL
 Java_com_cleiltonbr_moheuropeanassault_MainActivity_nativeStatus(JNIEnv* env, jobject) {
     char message[320];
     const bool xbeReady = hasGameXbe();
-#ifdef MOH_GENERATED_RECOMP_COMPILED
-    snprintf(message, sizeof(message),
-        "D3D8 stage=%d frames=%llu error=0x%08X. ARM64 game code compiled. XBE %s; boot integration pending.",
-        g_stage.load(), g_frames.load(), static_cast<unsigned int>(g_error.load()),
-        xbeReady ? "imported" : "not imported");
-#else
-    snprintf(message, sizeof(message),
-        "D3D8 stage=%d frames=%llu error=0x%08X. XBE %s; generated game code not compiled.",
-        g_stage.load(), g_frames.load(), static_cast<unsigned int>(g_error.load()),
-        xbeReady ? "imported" : "not imported");
-#endif
+    const int stage = g_stage.load();
+    const char* detail = stage == 20 ? "XBE loaded; Xbox memory and kernel bridge initialized; game entry not started."
+        : stage == -10 ? "default.xbe not found."
+        : stage == -11 || stage == -12 ? "Could not read default.xbe."
+        : stage == -13 ? "Invalid XBE header (XBEH signature missing)."
+        : stage == -14 ? "Xbox guest memory mapping failed."
+        : "Android D3D8 renderer active; import game files to prepare XBE.";
+    snprintf(message, sizeof(message), "stage=%d frames=%llu error=0x%08X. XBE %s. %s",
+        stage, g_frames.load(), static_cast<unsigned int>(g_error.load()),
+        xbeReady ? "imported" : "not imported", detail);
     return env->NewStringUTF(message);
 }
 
