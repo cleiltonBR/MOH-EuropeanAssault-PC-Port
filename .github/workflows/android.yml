@@ -81,6 +81,7 @@ jobs:
       - name: Run SSE compatibility behavior tests
         run: /tmp/recomp_sse_compat_test
 
+# Private generated-code compilation is validated only when the repository secret is configured.
   test-generated-recomp-android-arm64:
     runs-on: ubuntu-latest
     env:
