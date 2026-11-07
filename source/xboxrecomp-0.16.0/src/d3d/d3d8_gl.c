@@ -516,10 +516,31 @@ static HRESULT __stdcall tex_UnlockRect(IDirect3DTexture8 *self, UINT lvl)
     GLTexture *t=(GLTexture*)self; (void)lvl;
     if (t->dirty && t->gl_tex) {
         glBindTexture(GL_TEXTURE_2D, t->gl_tex);
-        /* First cut: assume BGRA8 layout (matches D3DFMT_A8R8G8B8/X8R8G8B8). */
+        /* D3D8 A8R8G8B8/X8R8G8B8 shadow memory is BGRA byte order.
+         * GLES does not guarantee desktop GL's packed REV upload type, so
+         * convert rows to RGBA before uploading on Android. */
+#ifdef __ANDROID__
+        const size_t row_bytes = (size_t)t->width * 4u;
+        uint8_t *rgba = (uint8_t *)malloc(row_bytes * (size_t)t->height);
+        if (!rgba) return D3DERR_INVALIDCALL;
+        for (UINT y = 0; y < t->height; ++y) {
+            const uint8_t *src = (const uint8_t *)t->sys_mem + (size_t)y * t->pitch;
+            uint8_t *dst = rgba + (size_t)y * row_bytes;
+            for (UINT x = 0; x < t->width; ++x) {
+                dst[x * 4u + 0u] = src[x * 4u + 2u];
+                dst[x * 4u + 1u] = src[x * 4u + 1u];
+                dst[x * 4u + 2u] = src[x * 4u + 0u];
+                dst[x * 4u + 3u] = src[x * 4u + 3u];
+            }
+        }
+        glTexImage2D(GL_TEXTURE_2D, 0, GL_RGBA8,
+                     t->width, t->height, 0, GL_RGBA, GL_UNSIGNED_BYTE, rgba);
+        free(rgba);
+#else
         glTexImage2D(GL_TEXTURE_2D, 0, GL_RGBA8,
                      t->width, t->height, 0,
                      GL_BGRA, GL_UNSIGNED_INT_8_8_8_8_REV, t->sys_mem);
+#endif
         t->dirty = FALSE;
     }
     return D3D_OK;
