@@ -1259,3 +1259,16 @@ loc_001AD6E4: ;
     #undef fp_st
     #undef fp_st1
 }
+
+
+/* Dispatcher ABI bridges.
+ * recomp_dispatch.c exports these exact sub_XXXXXXXX symbols. Keep the
+ * Android-specific lifted bodies under game_patch_XXXXXXXX and forward the
+ * dispatcher entry points here, matching the desktop manual-patch contract. */
+void sub_000137C0(void) { game_patch_000137C0(); }
+void sub_001149E0(void) { game_patch_001149E0(); }
+void sub_00114B60(void) { game_patch_00114B60(); }
+void sub_0011AC60(void) { game_patch_0011AC60(); }
+void sub_0017B210(void) { game_patch_0017B210(); }
+void sub_00196467(void) { game_patch_00196467(); }
+void sub_001AD630(void) { game_patch_001AD630(); }
