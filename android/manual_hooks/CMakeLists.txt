@@ -22,6 +22,8 @@ if(BUILD_TESTING)
     tests/test_android_enter_hooks.c
     ../app/src/main/cpp/recomp_android_hooks.c
   )
+  set_target_properties(test_android_enter_hooks PROPERTIES C_STANDARD 11 C_STANDARD_REQUIRED ON)
+  target_compile_definitions(test_android_enter_hooks PRIVATE _POSIX_C_SOURCE=200809L)
   target_compile_options(test_android_enter_hooks PRIVATE -Wall -Wextra -Werror)
   add_test(NAME android_manual_enter_hooks COMMAND test_android_enter_hooks)
 endif()
