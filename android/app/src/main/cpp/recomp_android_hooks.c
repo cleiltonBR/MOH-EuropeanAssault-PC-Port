@@ -107,7 +107,7 @@ void sub_002ECD1F_enter(void)
 {
     static _Thread_local uint32_t last_iface;
     static _Thread_local unsigned streak;
-    uint32_t stack_arg, iface;
+    uint32_t iface;
 
     if (g_esp > UINT32_MAX - 4u
         || !android_guest_read_u32(g_esp + 4u, &iface)) {
@@ -115,9 +115,6 @@ void sub_002ECD1F_enter(void)
         streak = 0;
         return;
     }
-
-    stack_arg = g_esp + 4u;
-    (void)stack_arg;
 
     if (iface != last_iface) {
         last_iface = iface;
