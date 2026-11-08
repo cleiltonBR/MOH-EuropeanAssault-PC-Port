@@ -217,25 +217,6 @@ void game_patch_000137C0(void)
     int32_t _fas = 0, _fbs = 0;
     (void)_fa; (void)_fb; (void)_fas; (void)_fbs; (void)_flags;
 
-    if (fps) {                                                  /* PATCH */
-        /* The caller's copy of [0x3727C0], which it multiplies the step by
-         * once this returns: [esp+4+off] here, off by return address.
-         * [0x3727C0] is not seconds: it is 1.0 (NTSC; 1.1988 PAL), the game
-         * keeping its time in 59.94 Hz frames ([0x3727C8] = 0.016683 s, a
-         * vblank). A tick of 1/N s is then [0x3727C0] / N / [0x3727C8]
-         * frames: 0.4995 at 120. (Given 1/N there, the clock ran N times
-         * slow and the screen never faded in from black.) The global is
-         * left alone; the copy is checked to hold its value first. */
-        uint32_t off = 0xFFFFFFFFu, slot;
-        switch (MEM32(esp)) {
-        case 0x000804F3u: case 0x00080B7Cu: off = 0; break;
-        case 0x0008073Bu: case 0x000809BEu: case 0x000817B2u: off = 0xC; break;
-        }
-        slot = esp + 4 + off;
-        if (off != 0xFFFFFFFFu && MEM32(slot) == MEM32(0x3727C0)
-            && MEMF(0x3727C8) > 0.001f)
-            MEMF(slot) = MEMF(slot) / (float)fps / MEMF(0x3727C8);
-    }
 
 loc_000137C0: ;
     SET_LO8(eax, MEM8(0x38DC70));
