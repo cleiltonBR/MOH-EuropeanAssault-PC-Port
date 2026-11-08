@@ -1,0 +1,35 @@
+name: Export recompilation sources for analysis
+
+on:
+  push:
+    branches: [android-port]
+    paths:
+      - "recompilation.zip"
+      - ".github/workflows/export-recompilation.yml"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  export-recompilation:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+        with:
+          ref: android-port
+          persist-credentials: false
+
+      - name: Verify archive
+        run: |
+          test -s recompilation.zip
+          unzip -tq recompilation.zip
+
+      - name: Upload source archive for analysis
+        uses: actions/upload-artifact@v4
+        with:
+          name: moh-recompilation-source-archive
+          path: recompilation.zip
+          if-no-files-found: error
+          retention-days: 1
