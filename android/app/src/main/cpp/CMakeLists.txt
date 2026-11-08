@@ -72,6 +72,15 @@ if(MOH_BUILD_GENERATED_RECOMP)
     target_compile_options(moh_generated_recomp_arm64 PRIVATE
         -include "${CMAKE_CURRENT_SOURCE_DIR}/recomp_sse_compat.h"
         -Wall -Wextra -Wno-parentheses-equality
+        # Decompiled sources intentionally retain labels/temporary variables
+        # from the original control-flow graph. Suppress only this generated
+        # code's high-volume diagnostics; project-owned Android code keeps its
+        # normal warning policy above.
+        -Wno-unused-label
+        -Wno-unused-variable
+        -Wno-unused-but-set-variable
+        -Wno-macro-redefined
+        -Wno-gnu-anonymous-struct
     )
     target_link_libraries(moh_generated_recomp_arm64 PRIVATE m)
     add_dependencies(moh_android moh_generated_recomp_arm64)
