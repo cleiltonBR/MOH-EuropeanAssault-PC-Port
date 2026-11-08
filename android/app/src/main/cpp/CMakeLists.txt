@@ -84,6 +84,15 @@ if(MOH_BUILD_GENERATED_RECOMP)
         -Wno-gnu-anonymous-struct
     )
     target_link_libraries(moh_generated_recomp_arm64 PRIVATE m)
+    # Link the generated archive into the Android shared library so the
+    # dispatcher and every translated body are resolved by the real linker.
+    # Game execution remains gated until the Android XBE/kernel bootstrap is
+    # initialized by the runtime entry path.
+    target_include_directories(moh_android PRIVATE
+        "${RECOMP_ROOT_DIR}"
+        "${RECOMP_GEN_DIR}"
+    )
+    target_link_libraries(moh_android PRIVATE moh_generated_recomp_arm64)
     add_dependencies(moh_android moh_generated_recomp_arm64)
     target_compile_definitions(moh_android PRIVATE MOH_GENERATED_RECOMP_COMPILED=1)
 endif()
