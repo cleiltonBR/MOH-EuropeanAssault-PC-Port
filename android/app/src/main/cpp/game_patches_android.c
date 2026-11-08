@@ -7,6 +7,32 @@
  */
 #include "recomp_types.h"
 #include "recomp_funcs.h"
+#include <time.h>
+
+/* Android monotonic clock and cooperative sleep used by the stream-flush
+ * patch. Wall-clock time is only a last-resort fallback if CLOCK_MONOTONIC
+ * unexpectedly fails. */
+static uint64_t android_patch_monotonic_ms(void)
+{
+    struct timespec now;
+    if (clock_gettime(CLOCK_MONOTONIC, &now) == 0)
+        return (uint64_t)now.tv_sec * 1000u
+             + (uint64_t)now.tv_nsec / 1000000u;
+    {
+        time_t fallback = time(NULL);
+        return fallback > 0 ? (uint64_t)fallback * 1000u : 0;
+    }
+}
+
+static void android_patch_sleep_ms(uint32_t milliseconds)
+{
+    struct timespec delay;
+    delay.tv_sec = (time_t)(milliseconds / 1000u);
+    delay.tv_nsec = (long)(milliseconds % 1000u) * 1000000L;
+    (void)nanosleep(&delay, NULL);
+}
+
+
 
 /* 0x0017B210: original lifted guest behavior. This function has no Win32,
  * desktop input, diagnostic, or host-clock dependencies. */
@@ -1052,4 +1078,105 @@ loc_0011B184: ;
     #undef fp_top
     #undef fp_st
     #undef fp_st1
+}
+
+/* Android-safe DirectSound flush wait: never release a stream that the
+ * audio service still reports as active. The bounded timeout prevents a
+ * missing APU stop notification from hanging campaign loading. */
+void game_patch_00196467(void)
+{
+    uint64_t wait_start = 0;
+    int still_playing = 0;
+    uint32_t ebp = 0;
+    ebp = g_ebp;  /* prologue saves caller's frame */
+    int _flags = 0; /* fallback flag var */
+    uint32_t _fa = 0, _fb = 0;
+    int32_t _fas = 0, _fbs = 0;
+    (void)_fa; (void)_fb; (void)_fas; (void)_fbs;
+
+loc_00196467: ;
+    PUSH32(esp, ebp);
+    ebp = esp;
+    g_ebp = ebp; /* publish frame for frameless callees */
+    g_seh_ebp = ebp;
+    PUSH32(esp, ecx);
+    PUSH32(esp, 1);
+    PUSH32(esp, 0);
+    PUSH32(esp, 0);
+    PUSH32(esp, MEM32(0x5239B8));
+    g_ebp = ebp; /* frame stays current across calls */
+    g_seh_ebp = ebp;
+    PUSH32(esp, 0x0019647Cu); RECOMP_ABI_CALL(0x002ECCBFu, sub_002ECCBF); /* call 0x002ECCBF */
+
+    wait_start = android_patch_monotonic_ms();
+loc_0019647C: ;
+    eax = ebp + -4;
+    PUSH32(esp, eax);
+    PUSH32(esp, MEM32(0x5239B8));
+    g_ebp = ebp; /* frame stays current across calls */
+    g_seh_ebp = ebp;
+    PUSH32(esp, 0x0019648Bu); RECOMP_ABI_CALL(0x002ECD1Fu, sub_002ECD1F); /* call 0x002ECD1F */
+
+loc_0019648B: ;
+    _fa = (uint32_t)(MEM8(ebp + -4)) & 0xFFu; _fb = (uint32_t)(1) & 0xFFu;
+    _fas = (int32_t)(int8_t)(_fa); _fbs = (int32_t)(int8_t)(_fb); /* test MEM8(ebp + -4), 1 (8-bit) */
+    if (TEST_NZ(_fa, _fb)) {
+        /* PATCH: bounded. The APU model does not always report the stream
+         * stopped; on the console this takes a few milliseconds. */
+        if (android_patch_monotonic_ms() - wait_start < 2000u) {
+            RECOMP_BACK_EDGE(0x0019648Fu);
+            android_patch_sleep_ms(1u);
+            goto loc_0019647C;
+        }
+        still_playing = 1;
+    }
+
+loc_00196491: ;
+    /* PATCH: release the stream only once it has stopped. Freed while its
+     * voices are still on DirectSound's service list, the next interrupt
+     * walks freed memory. A stream left alive costs a few KB. */
+    if (!still_playing) {
+        PUSH32(esp, MEM32(0x5239B8));
+        g_ebp = ebp; /* frame stays current across calls */
+        g_seh_ebp = ebp;
+        PUSH32(esp, 0x0019649Cu); RECOMP_ABI_CALL(0x002EBFE1u, sub_002EBFE1); /* call 0x002EBFE1 */
+    }
+
+loc_0019649C: ;
+    g_ebp = ebp; /* frame stays current across calls */
+    g_seh_ebp = ebp;
+    PUSH32(esp, 0x001964A1u); RECOMP_ABI_CALL(0x001950E3u, sub_001950E3); /* call 0x001950E3 */
+
+loc_001964A1: ;
+    PUSH32(esp, MEM32(0x5239D0));
+    g_ebp = ebp; /* frame stays current across calls */
+    g_seh_ebp = ebp;
+    PUSH32(esp, 0x001964ACu); RECOMP_ABI_CALL(0x00197A91u, sub_00197A91); /* call 0x00197A91 */
+
+loc_001964AC: ;
+    POP32(esp, ecx);
+    g_ebp = ebp; /* frame stays current across calls */
+    g_seh_ebp = ebp;
+    PUSH32(esp, 0x001964B2u); RECOMP_ABI_CALL(0x001950F1u, sub_001950F1); /* call 0x001950F1 */
+
+loc_001964B2: ;
+    g_ebp = ebp; /* frame stays current across calls */
+    g_seh_ebp = ebp;
+    PUSH32(esp, 0x001964B7u); RECOMP_ABI_CALL(0x001950E3u, sub_001950E3); /* call 0x001950E3 */
+
+loc_001964B7: ;
+    g_ebp = ebp; /* frame stays current across calls */
+    g_seh_ebp = ebp;
+    PUSH32(esp, 0x001964BCu); RECOMP_ABI_CALL(0x00199C1Au, sub_00199C1A); /* call 0x00199C1A */
+
+loc_001964BC: ;
+    g_ebp = ebp; /* frame stays current across calls */
+    g_seh_ebp = ebp;
+    PUSH32(esp, 0x001964C1u); RECOMP_ABI_CALL(0x001950F1u, sub_001950F1); /* call 0x001950F1 */
+
+loc_001964C1: ;
+    esp = ebp;
+    POP32(esp, ebp); /* leave */
+    esp += 4; return; /* ret */
+
 }
