@@ -1180,3 +1180,101 @@ loc_001964C1: ;
     esp += 4; return; /* ret */
 
 }
+
+
+/* Original guest emitter-update body. The desktop-only FPS accumulator and
+ * emitter diagnostics/reaper are intentionally excluded until their audio
+ * service ownership contract is ported for Android. */
+void game_patch_001AD630(void)
+{
+    int _flags = 0; /* fallback flag var */
+    uint32_t _fa = 0, _fb = 0;
+    int32_t _fas = 0, _fbs = 0;
+    (void)_fa; (void)_fb; (void)_fas; (void)_fbs;
+    double _fca = 0.0, _fcb = 0.0;
+    (void)_fca; (void)_fcb;
+    #define fp_push(v) do { double _fp_value = (v); \
+        g_fp_top = (g_fp_top + 7u) & 7u; \
+        g_fp_stack[g_fp_top] = _fp_value; } while (0)
+    #define fp_pop() (g_fp_top = (g_fp_top + 1u) & 7u)
+    #define fp_top() g_fp_stack[g_fp_top]
+    #define fp_st(i) g_fp_stack[(g_fp_top + (i)) & 7u]
+    #define fp_st1() fp_st(1)
+
+loc_001AD630: ;
+    PUSH32(esp, esi);
+    esi = ecx;
+    SET_LO8(eax, MEM8(esi + 0x10332));
+    _fa = (uint32_t)(LO8(eax)) & 0xFFu; _fb = (uint32_t)(0) & 0xFFu;
+    _fas = (int32_t)(int8_t)(_fa); _fbs = (int32_t)(int8_t)(_fb); /* cmp LO8(eax), 0 (8-bit) */
+    if (CMP_NE(_fa, _fb)) goto loc_001AD6E4; /* jne: not equal / not zero */
+
+loc_001AD641: ;
+    xmm0 = XMM_SCALAR(MEMF(esi + 0x100C8)); /* movss */
+    _fca = xmm0.f[0]; _fcb = MEMF(esi + 0x100D0); /* comiss */
+    if ((_fca < _fcb || (_fca != _fca || _fcb != _fcb))) goto loc_001AD667; /* jb: below (unsigned <) (xmm0.f[0] vs MEMF(esi + 0x100D0)) */
+
+loc_001AD652: ;
+    eax = MEM32(esi + 0x100C0);
+    MEM32(esi + 0x100BC) = eax;
+    MEM8(esi + 0x100CC) = 0;
+    goto loc_001AD6A0;
+
+loc_001AD667: ;
+    xmm0 = XMM_SCALAR(MEMF(esp + 8)); /* movss */
+    xmm1 = XMM_SCALAR(MEMF(esi + 0x100C4)); /* movss */
+    xmm1.f[0] = xmm1.f[0] * xmm0.f[0]; /* mulss */
+    xmm1.f[0] = xmm1.f[0] + MEMF(esi + 0x100BC); /* addss */
+    xmm0.f[0] = xmm0.f[0] + MEMF(esi + 0x100C8); /* addss */
+    MEMF(esi + 0x100BC) = xmm1.f[0]; /* movss */
+    MEMF(esi + 0x100C8) = xmm0.f[0]; /* movss */
+    MEM8(esi + 0x100CC) = 1;
+
+loc_001AD6A0: ;
+    PUSH32(esp, 0x001AD6A5u); RECOMP_ABI_CALL(0x001950E3u, sub_001950E3); /* call 0x001950E3 */
+
+loc_001AD6A5: ;
+    ecx = esi;
+    PUSH32(esp, 0x001AD6ACu); RECOMP_ABI_CALL(0x001AD2E0u, sub_001AD2E0); /* call 0x001AD2E0 */
+
+loc_001AD6AC: ;
+    ecx = MEM32(esp + 8);
+    PUSH32(esp, ecx);
+    ecx = MEM32(0x524300);
+    PUSH32(esp, 0x001AD6BCu); RECOMP_ABI_CALL(0x001B1460u, sub_001B1460); /* call 0x001B1460 */
+
+loc_001AD6BC: ;
+    PUSH32(esp, 0x001AD6C1u); RECOMP_ABI_CALL(0x001950F1u, sub_001950F1); /* call 0x001950F1 */
+
+loc_001AD6C1: ;
+    eax = MEM32(esi + 0x1032C);
+    edx = ((int32_t)eax < 0) ? 0xFFFFFFFF : 0; /* cdq */
+    ecx = 0x14;
+    { int64_t _dividend = ((int64_t)(int32_t)edx << 32) | eax;
+      eax = (uint32_t)((int32_t)(_dividend / (int32_t)ecx));
+      edx = (uint32_t)((int32_t)(_dividend % (int32_t)ecx)); }
+    _fa = (uint32_t)(edx) & 0xFFFFFFFFu; _fb = (uint32_t)(0) & 0xFFFFFFFFu;
+    _fas = (int32_t)(int32_t)(_fa); _fbs = (int32_t)(int32_t)(_fb); /* cmp edx, 0 (32-bit) */
+    if (CMP_NE(_fa, _fb)) goto loc_001AD6DE; /* jne: not equal / not zero */
+
+loc_001AD6D3: ;
+    PUSH32(esp, 0x001AD6D8u); RECOMP_ABI_CALL(0x002B0661u, sub_002B0661); /* call 0x002B0661 */
+
+loc_001AD6D8: ;
+    MEMF(esi + 0x10328) = (float)fp_top(); fp_pop(); /* fstp */
+
+loc_001AD6DE: ;
+    MEM32(esi + 0x1032C) = MEM32(esi + 0x1032C) + 1;
+    _fa = (uint32_t)(MEM32(esi + 0x1032C)) & 0xFFFFFFFFu;
+    _fas = (int32_t)(int32_t)(_fa); _fb = (_fa == 0x80000000u); /* inc result/SF/OF; CF unchanged */
+
+loc_001AD6E4: ;
+    POP32(esp, esi);
+    esp += 8; return; /* ret 4 */
+
+    #undef fp_push
+    #undef fp_pop
+    #undef fp_top
+    #undef fp_st
+    #undef fp_st1
+}
