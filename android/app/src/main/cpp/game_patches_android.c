@@ -184,7 +184,7 @@ loc_0017B302: ;
 /* Original lifted guest patches with desktop-only input, FPS and sampler
  * injections removed. Guest register/memory behavior is otherwise retained. */
 
-game_patch_000137C0(void)
+void game_patch_000137C0(void)
 {
     int _flags = 0; /* fallback flag var */
     uint32_t _fa = 0, _fb = 0;
@@ -270,7 +270,7 @@ loc_00013831: ;
     esp += 4; return; /* ret */
 }
 
-game_patch_001149E0(void)
+void game_patch_001149E0(void)
 {
     uint32_t ebp = 0;
     ebp = g_ebp;  /* prologue saves caller's frame */
@@ -423,7 +423,7 @@ loc_00114B51: ;
 
 }
 
-game_patch_00114B60(void)
+void game_patch_00114B60(void)
 {
     int _flags = 0; /* fallback flag var */
     uint32_t _fa = 0, _fb = 0;
@@ -608,7 +608,7 @@ loc_00114D0F: ;
 
 }
 
-game_patch_0011AC60(void)
+void game_patch_0011AC60(void)
 {
     uint32_t ebp = 0;
     ebp = g_ebp;  /* prologue saves caller's frame */
