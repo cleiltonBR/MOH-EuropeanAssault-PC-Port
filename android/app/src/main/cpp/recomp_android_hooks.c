@@ -25,8 +25,11 @@ void sub_002ECD1F_enter(void)
     static _Thread_local uint32_t last_iface;
     static _Thread_local unsigned streak;
     uint32_t stack_arg = (uint32_t)(g_esp + 4u);
-    uint32_t iface = *(volatile uint32_t *)(
-        (uintptr_t)stack_arg + (uintptr_t)g_xbox_mem_offset);
+    /* Keep the guest-memory offset signed: it may be negative on hosts whose
+     * guest mapping is placed above the 32-bit guest address range. */
+    uintptr_t host_addr = (uintptr_t)((ptrdiff_t)(uintptr_t)stack_arg
+                                      + g_xbox_mem_offset);
+    uint32_t iface = *(volatile uint32_t *)host_addr;
 
     if (iface != last_iface) {
         last_iface = iface;
