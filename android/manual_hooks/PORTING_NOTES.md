@@ -42,3 +42,12 @@ The Android DirectSound helper entries `sub_002ECCBF_enter` and `sub_002ECD1F_en
 5. Connect the generated archive to the Android loader/runtime only after XBE image mapping, guest memory initialization, kernel startup and manual dispatch are ready.
 
 A successful static-library or APK build is not evidence that Medal of Honor has booted. Keep the PR as draft and do not replace the known-working graphics APK until runtime smoke tests pass.
+
+
+## Dispatcher linkage follow-up
+
+The seven `game_patch_XXXXXXXX` bodies now have matching `sub_XXXXXXXX` ABI bridge functions in `game_patches_android.c`, matching the symbols referenced by the private generated dispatcher. The ARM64 workflow audits those exact seven symbols and fails if any remain external. The generated archive is linked into `libmoh_android.so` for real linker validation, but `xbe_entry_point` is still not invoked: XBE memory initialization, Android runtime bootstrap and safe guest-thread lifecycle must be completed first.
+
+## Next runtime milestone
+
+The desktop startup sequence in `source/mygame/src/main.c` provides the reference order: load XBE, `xbox_MemoryLayoutInit`, set guest memory offset, `xbox_kernel_init`, `xbox_path_init`, `xbox_kernel_bridge_init`, initialize `g_esp = XBOX_STACK_TOP`, build `recomp_dispatch_init`, then call `xbe_entry_point`. Android must adapt paths and lifecycle, keep the EGL surface current on the game thread, and avoid blocking Activity shutdown before enabling that final call.
