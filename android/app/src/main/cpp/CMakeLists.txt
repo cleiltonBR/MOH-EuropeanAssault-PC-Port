@@ -62,6 +62,7 @@ if(MOH_BUILD_GENERATED_RECOMP)
     add_library(moh_generated_recomp_arm64 STATIC ${MOH_RECOMP_GENERATED_SOURCES})
     target_sources(moh_generated_recomp_arm64 PRIVATE
         "${CMAKE_CURRENT_SOURCE_DIR}/recomp_android_hooks.c"
+        "${CMAKE_CURRENT_SOURCE_DIR}/game_patches_android.c"
     )
     target_include_directories(moh_generated_recomp_arm64 PRIVATE
         "${RECOMP_ROOT_DIR}"
