@@ -113,8 +113,8 @@ int xa2_init(void)
     AAudioStreamBuilder_setFormat(builder, AAUDIO_FORMAT_PCM_I16);
     AAudioStreamBuilder_setChannelCount(builder, AA2_CHANNELS);
     AAudioStreamBuilder_setSampleRate(builder, AA2_SAMPLE_RATE);
-    AAudioStreamBuilder_setUsage(builder, AAUDIO_USAGE_GAME);
-    AAudioStreamBuilder_setContentType(builder, AAUDIO_CONTENT_TYPE_MUSIC);
+    /* Usage and content type default to MEDIA and MUSIC. The explicit
+     * setters were added in Android API 28, while this backend targets API 26. */
     AAudioStreamBuilder_setDataCallback(builder, aa2_data_callback, NULL);
 
     result = AAudioStreamBuilder_openStream(builder, &g_stream);
