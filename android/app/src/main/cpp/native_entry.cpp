@@ -4,6 +4,8 @@
 #include <EGL/egl.h>
 #include <GLES3/gl3.h>
 #include "d3d8_xbox.h"
+#include "kernel.h"
+#include "xbox_memory_layout.h"
 #include <atomic>
 #include <chrono>
 #include <thread>
@@ -30,6 +32,10 @@ std::string g_game_dir;
 uint32_t g_xbe_entry = 0;
 uint32_t g_xbe_kernel_thunk = 0;
 std::string g_xbe_validation = "XBE not inspected";
+std::atomic<int> g_runtime_stage{0};
+std::string g_runtime_status = "waiting for a valid XBE";
+bool g_memory_started = false;
+bool g_kernel_started = false;
 std::vector<uint8_t> g_xbe_image;
 
 uint32_t readLe32(const std::vector<uint8_t>& bytes, size_t offset) {
@@ -84,6 +90,60 @@ void inspectXbeLocked() {
     g_xbe_validation = (g_xbe_entry && g_xbe_kernel_thunk)
         ? "XBEH valid; decoded entry and kernel thunk"
         : "XBEH valid, but decoded entry point or kernel thunk is zero";
+}
+
+void shutdownXboxRuntimeLocked() {
+    if (g_kernel_started) {
+        xbox_kernel_shutdown();
+        g_kernel_started = false;
+    }
+    if (g_memory_started) {
+        xbox_MemoryLayoutShutdown();
+        g_memory_started = false;
+    }
+    g_runtime_stage.store(0);
+}
+
+void initializeXboxRuntimeLocked() {
+    uint32_t thunk_va = 0;
+    uint32_t thunk_count = 0;
+
+    if (g_memory_started || g_xbe_image.empty() || !g_xbe_entry ||
+        !g_xbe_kernel_thunk) {
+        return;
+    }
+
+    g_runtime_stage.store(1);
+    g_runtime_status = "mapping Xbox guest memory and loading XBE sections";
+    if (!xbox_MemoryLayoutInit(g_xbe_image.data(), g_xbe_image.size())) {
+        xbox_MemoryLayoutShutdown();
+        g_runtime_stage.store(-1);
+        g_runtime_status = "Xbox guest memory initialization failed";
+        return;
+    }
+    g_memory_started = true;
+    g_runtime_stage.store(2);
+
+    const std::string save_dir = g_game_dir + "/../saves";
+    xbox_path_init(g_game_dir.c_str(), save_dir.c_str());
+    xbox_kernel_init();
+    g_kernel_started = true;
+    g_runtime_stage.store(3);
+
+    xbox_kernel_get_thunk_address(&thunk_va, &thunk_count);
+    if (!xbox_GetMemoryBase() || !thunk_va || !thunk_count) {
+        g_runtime_status = "guest memory loaded, but XBE kernel thunk table is unavailable";
+        g_runtime_stage.store(-2);
+        xbox_kernel_shutdown();
+        g_kernel_started = false;
+        xbox_MemoryLayoutShutdown();
+        g_memory_started = false;
+        return;
+    }
+
+    xbox_kernel_bridge_init();
+    g_runtime_stage.store(4);
+    g_runtime_status = "Xbox guest memory and kernel thunk bridge ready; game entry point not started";
 }
 
 bool hasGameXbe() {
@@ -169,8 +229,10 @@ Java_com_cleiltonbr_moheuropeanassault_MainActivity_nativeSetGameDirectory(
     const char* chars = path ? env->GetStringUTFChars(path, nullptr) : nullptr;
     {
         std::lock_guard<std::mutex> lock(g_game_dir_mutex);
+        shutdownXboxRuntimeLocked();
         g_game_dir = chars ? chars : "";
         inspectXbeLocked();
+        initializeXboxRuntimeLocked();
     }
     if (chars) env->ReleaseStringUTFChars(path, chars);
 }
@@ -181,10 +243,10 @@ Java_com_cleiltonbr_moheuropeanassault_MainActivity_nativeStatus(JNIEnv* env, jo
     std::lock_guard<std::mutex> lock(g_game_dir_mutex);
     const bool xbeReady = hasGameXbe();
     snprintf(message, sizeof(message),
-        "stage=%d render_frames=%llu game_frames=%llu error=0x%08X. XBE %s (%zu bytes loaded); %s; entry=0x%08X thunk=0x%08X.",
+        "stage=%d render_frames=%llu game_frames=%llu error=0x%08X. XBE %s (%zu bytes); %s; entry=0x%08X thunk=0x%08X; runtime_stage=%d (%s).",
         g_stage.load(), g_frames.load(), g_game_frames.load(), static_cast<unsigned int>(g_error.load()),
         xbeReady ? "imported" : "not imported", g_xbe_image.size(), g_xbe_validation.c_str(),
-        g_xbe_entry, g_xbe_kernel_thunk);
+        g_xbe_entry, g_xbe_kernel_thunk, g_runtime_stage.load(), g_runtime_status.c_str());
     return env->NewStringUTF(message);
 }
 
@@ -196,6 +258,14 @@ Java_com_cleiltonbr_moheuropeanassault_MainActivity_nativeStart(
     if (!window) { g_running.store(false); return; }
     if (g_thread.joinable()) g_thread.join();
     g_thread = std::thread(renderLoop, window);
+}
+
+
+extern "C" JNIEXPORT void JNICALL
+Java_com_cleiltonbr_moheuropeanassault_MainActivity_nativeShutdown(JNIEnv*, jobject) {
+    std::lock_guard<std::mutex> lock(g_game_dir_mutex);
+    shutdownXboxRuntimeLocked();
+    g_runtime_status = "runtime shut down";
 }
 
 extern "C" JNIEXPORT void JNICALL
