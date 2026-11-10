@@ -188,6 +188,7 @@ void renderLoop(ANativeWindow* window) {
                             ? "XBE sections mapped; Xbox kernel and thunk bridge ready; dispatcher prepared. Game entry point not started yet."
                             : "XBE sections mapped; Xbox kernel and thunk bridge ready; dispatcher will use fallback lookup. Game entry point not started yet.");
                     } else {
+                        xbox_MemoryLayoutShutdown();
                         g_error.store(-8);
                         g_stage.store(-8);
                         setRuntimeStatus("Xbox guest-memory/XBE section initialization failed.");
@@ -202,7 +203,6 @@ void renderLoop(ANativeWindow* window) {
             HRESULT presentResult = device->lpVtbl->Present(
                 device, nullptr, nullptr, nullptr, nullptr);
             if (presentResult != 0) { g_error.store(presentResult); g_stage.store(-5); break; }
-            g_frames.fetch_add(1);
             std::this_thread::sleep_for(std::chrono::milliseconds(16));
         }
     } else { g_error.store(createResult); g_stage.store(-6); }
@@ -210,6 +210,8 @@ void renderLoop(ANativeWindow* window) {
     if (runtimeMemoryReady) xbox_MemoryLayoutShutdown();
     g_runtime_ready.store(false);
     g_runtime_attempted.store(false);
+    if (runtimeMemoryReady)
+        setRuntimeStatus("Xbox runtime shut down with the Android graphics surface.");
     d3d8_android_set_egl_surface(EGL_NO_DISPLAY, EGL_NO_SURFACE, 0, 0);
     eglMakeCurrent(display, EGL_NO_SURFACE, EGL_NO_SURFACE, EGL_NO_CONTEXT);
     eglDestroySurface(display, surface);
