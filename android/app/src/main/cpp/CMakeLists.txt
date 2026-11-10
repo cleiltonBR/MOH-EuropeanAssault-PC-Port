@@ -27,11 +27,16 @@ add_subdirectory(
 add_library(moh_android SHARED native_entry.cpp)
 target_compile_features(moh_android PRIVATE cxx_std_17)
 target_compile_options(moh_android PRIVATE -Wall -Wextra -Wpedantic)
+# Keep the APU before the kernel archive: its implementation consumes kernel
+# memory-layout and platform primitives. This also makes the native AAudio
+# dependency part of the final Android shared library.
 target_link_libraries(moh_android PRIVATE
     platform
+    xbox_apu
     xbox_kernel
     xbox_d3d8
     android
+    aaudio
     EGL
     GLESv3
     log
