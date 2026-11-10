@@ -24,6 +24,7 @@ std::thread g_thread;
 std::atomic<int> g_stage{0};
 std::atomic<int> g_error{0};
 std::atomic<unsigned long long> g_frames{0};
+std::atomic<unsigned long long> g_game_frames{0};
 std::mutex g_game_dir_mutex;
 std::string g_game_dir;
 uint32_t g_xbe_entry = 0;
@@ -157,6 +158,11 @@ void renderLoop(ANativeWindow* window) {
 }
 } // namespace
 
+/* Called by the translated game's frame-limiter hook once the real game loop is active. */
+extern "C" void moh_android_note_frame(void) {
+    g_game_frames.fetch_add(1, std::memory_order_relaxed);
+}
+
 extern "C" JNIEXPORT void JNICALL
 Java_com_cleiltonbr_moheuropeanassault_MainActivity_nativeSetGameDirectory(
     JNIEnv* env, jobject, jstring path) {
@@ -175,8 +181,8 @@ Java_com_cleiltonbr_moheuropeanassault_MainActivity_nativeStatus(JNIEnv* env, jo
     std::lock_guard<std::mutex> lock(g_game_dir_mutex);
     const bool xbeReady = hasGameXbe();
     snprintf(message, sizeof(message),
-        "stage=%d frames=%llu error=0x%08X. XBE %s (%zu bytes loaded); %s; entry=0x%08X thunk=0x%08X.",
-        g_stage.load(), g_frames.load(), static_cast<unsigned int>(g_error.load()),
+        "stage=%d render_frames=%llu game_frames=%llu error=0x%08X. XBE %s (%zu bytes loaded); %s; entry=0x%08X thunk=0x%08X.",
+        g_stage.load(), g_frames.load(), g_game_frames.load(), static_cast<unsigned int>(g_error.load()),
         xbeReady ? "imported" : "not imported", g_xbe_image.size(), g_xbe_validation.c_str(),
         g_xbe_entry, g_xbe_kernel_thunk);
     return env->NewStringUTF(message);
