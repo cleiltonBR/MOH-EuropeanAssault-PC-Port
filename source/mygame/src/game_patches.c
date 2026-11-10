@@ -8,6 +8,13 @@
  */
 #if defined(MOH_ANDROID_RUNTIME)
 #include "platform/xbox_winnt.h"
+#ifndef VK_F11
+#define VK_F11 0x7A
+#define VK_OEM_4 0xDB
+#define VK_OEM_6 0xDD
+#endif
+extern HWND GetForegroundWindow(void);
+extern DWORD GetWindowThreadProcessId(HWND window, LPDWORD process_id);
 #else
 #include <windows.h>
 #endif
@@ -3438,5 +3445,7 @@ uint32_t game_lod_level(uint32_t req, uint32_t level)
 
 /* The AI tuning and aim code is in its own files but compiled as part of this one: the profile-guided build only
  * links the object files that existed when the profile was recorded. */
+#if !defined(MOH_ANDROID_RUNTIME)
 #include "ai_tuning.c"
 #include "ai_aim.c"
+#endif
