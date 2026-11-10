@@ -25,6 +25,8 @@ extern __thread uint32_t g_esp;
 int recomp_dispatch_init(void);
 }
 
+extern "C" void moh_android_note_frame(void);
+
 namespace {
 std::atomic<bool> g_running{false};
 std::thread g_thread;
