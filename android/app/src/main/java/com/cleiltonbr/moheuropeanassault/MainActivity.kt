@@ -23,6 +23,7 @@ class MainActivity : Activity(), SurfaceHolder.Callback {
     private external fun nativeStatus(): String
     private external fun nativeStart(surface: Surface)
     private external fun nativeStop()
+    private external fun nativeShutdown()
     private external fun nativeSetGameDirectory(path: String)
 
     private lateinit var status: TextView
@@ -128,6 +129,7 @@ class MainActivity : Activity(), SurfaceHolder.Callback {
     override fun onDestroy() {
         handler.removeCallbacks(refreshStatus)
         nativeStop()
+        nativeShutdown()
         super.onDestroy()
     }
 }
