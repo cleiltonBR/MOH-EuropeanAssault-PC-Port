@@ -218,8 +218,8 @@ jobs:
       - name: Compile APU source apu_core.c (ARM64)
         run: |
           python3 - <<'PY'
-          import json, pathlib, shlex, subprocess, sys
-          db = json.load(open("$RUNNER_TEMP/moh-apu-arm64/compile_commands.json"))
+          import json, os, pathlib, shlex, subprocess, sys
+          db = json.load(open(os.path.join(os.environ["RUNNER_TEMP"], "moh-apu-arm64", "compile_commands.json"))
           entry = next(e for e in db if pathlib.Path(e["file"]).name == "apu_core.c")
           command = entry.get("arguments") or shlex.split(entry["command"])
           result = subprocess.run(command, cwd=entry["directory"],
