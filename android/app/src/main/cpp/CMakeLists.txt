@@ -21,15 +21,6 @@ add_subdirectory(
 add_library(moh_android SHARED native_entry.cpp)
 target_compile_features(moh_android PRIVATE cxx_std_17)
 target_compile_options(moh_android PRIVATE -Wall -Wextra -Wpedantic)
-target_link_libraries(moh_android PRIVATE
-    platform
-    xbox_kernel
-    xbox_d3d8
-    android
-    EGL
-    GLESv3
-    log
-)
 target_compile_definitions(moh_android PRIVATE MOH_ANDROID_PLATFORM_LINKED=1)
 
 # Compile and link the private ARM64 game code with the Android runtime.
@@ -93,11 +84,34 @@ if(MOH_BUILD_GENERATED_RECOMP)
     )
     target_link_libraries(moh_generated_recomp_arm64 PRIVATE m)
     add_dependencies(moh_android moh_generated_recomp_arm64)
-    # Pull the generated dispatcher and game entry point into the APK before
-    # the kernel archive so its runtime references resolve in static-link order.
-    target_link_libraries(moh_android BEFORE PRIVATE moh_generated_recomp_arm64)
     target_link_options(moh_android PRIVATE "-Wl,--gc-sections")
     target_compile_definitions(moh_android PRIVATE MOH_GENERATED_RECOMP_COMPILED=1)
+endif()
+
+# Keep the generated archive before the kernel/platform archives: the native
+# bootstrap references its dispatcher, while generated code references the
+# kernel bridge and POSIX host primitives.
+if(TARGET moh_generated_recomp_arm64)
+    target_link_libraries(moh_android PRIVATE
+        moh_generated_recomp_arm64
+        platform
+        xbox_kernel
+        xbox_d3d8
+        android
+        EGL
+        GLESv3
+        log
+    )
+else()
+    target_link_libraries(moh_android PRIVATE
+        platform
+        xbox_kernel
+        xbox_d3d8
+        android
+        EGL
+        GLESv3
+        log
+    )
 endif()
 
 include("${CMAKE_CURRENT_SOURCE_DIR}/recomp_sse_compat_test.cmake")
