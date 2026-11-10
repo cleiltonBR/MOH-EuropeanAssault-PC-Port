@@ -35,6 +35,7 @@ extern volatile LONG g_audio_mark;      /* video/fb_present.c, F8 */
  * Do not replace it with C long: Android arm64 uses LP64, where long is
  * 64-bit and is incompatible with the Interlocked* declarations. */
 static volatile LONG g_audio_mark;
+#define VEV_NOW() ((unsigned)GetTickCount())
 #ifndef RECOMP_TLS
 #define RECOMP_TLS _Thread_local
 #endif
