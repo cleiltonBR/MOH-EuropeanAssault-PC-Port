@@ -194,6 +194,29 @@ jobs:
           path: android/app/build/outputs/apk/debug/app-debug.apk
           if-no-files-found: error
 
+  test-apu-runtime-android-arm64:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Set up Android SDK and NDK
+        uses: android-actions/setup-android@v3
+        with:
+          packages: 'ndk;27.2.12479018'
+
+      - name: Configure Android ARM64 runtime targets
+        run: |
+          cmake -S android/app/src/main/cpp -B "$RUNNER_TEMP/moh-apu-arm64" \
+            -DCMAKE_TOOLCHAIN_FILE="$ANDROID_HOME/ndk/27.2.12479018/build/cmake/android.toolchain.cmake" \
+            -DANDROID_ABI=arm64-v8a \
+            -DANDROID_PLATFORM=android-26 \
+            -DCMAKE_BUILD_TYPE=Debug \
+            -DMOH_BUILD_GENERATED_RECOMP=OFF
+
+      - name: Compile Android APU archive
+        run: cmake --build "$RUNNER_TEMP/moh-apu-arm64" --target xbox_apu --parallel 2
+
   test-sse-compat-android-arm64:
     runs-on: ubuntu-latest
     steps:
