@@ -60,13 +60,20 @@ if(MOH_BUILD_GENERATED_RECOMP)
         "${RECOMP_ROOT_DIR}/recomp_stubs_unresolved.c"
     )
     add_library(moh_generated_recomp_arm64 STATIC ${MOH_RECOMP_GENERATED_SOURCES})
+    set(MOH_GAME_PATCHES
+        "${CMAKE_CURRENT_SOURCE_DIR}/../../../../../source/mygame/src/game_patches.c")
+    set_source_files_properties("${MOH_GAME_PATCHES}"
+        PROPERTIES COMPILE_DEFINITIONS "MOH_ANDROID_RUNTIME=1")
     target_sources(moh_generated_recomp_arm64 PRIVATE
         "${CMAKE_CURRENT_SOURCE_DIR}/recomp_android_hooks.c"
+        "${CMAKE_CURRENT_SOURCE_DIR}/recomp_android_game_hooks.c"
+        "${MOH_GAME_PATCHES}"
     )
     target_include_directories(moh_generated_recomp_arm64 PRIVATE
         "${RECOMP_ROOT_DIR}"
         "${RECOMP_GEN_DIR}"
         "${CMAKE_CURRENT_SOURCE_DIR}"
+        "${XBOXRECOMP_PLATFORM_DIR}/.."
     )
     target_compile_definitions(moh_generated_recomp_arm64 PRIVATE RECOMP_GENERATED_CODE=1)
     target_compile_options(moh_generated_recomp_arm64 PRIVATE
@@ -81,9 +88,15 @@ if(MOH_BUILD_GENERATED_RECOMP)
         -Wno-unused-but-set-variable
         -Wno-macro-redefined
         -Wno-gnu-anonymous-struct
+        -ffunction-sections
+        -fdata-sections
     )
     target_link_libraries(moh_generated_recomp_arm64 PRIVATE m)
     add_dependencies(moh_android moh_generated_recomp_arm64)
+    # Pull the generated dispatcher and game entry point into the APK before
+    # the kernel archive so its runtime references resolve in static-link order.
+    target_link_libraries(moh_android BEFORE PRIVATE moh_generated_recomp_arm64)
+    target_link_options(moh_android PRIVATE "-Wl,--gc-sections")
     target_compile_definitions(moh_android PRIVATE MOH_GENERATED_RECOMP_COMPILED=1)
 endif()
 
