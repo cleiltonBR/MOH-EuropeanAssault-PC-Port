@@ -12,6 +12,7 @@
 #include <cstdio>
 #include <string>
 #include <mutex>
+#include <condition_variable>
 #include <sys/stat.h>
 #include <cstdint>
 #include <fstream>
@@ -28,6 +29,10 @@ std::atomic<int> g_error{0};
 std::atomic<unsigned long long> g_frames{0};
 std::atomic<unsigned long long> g_game_frames{0};
 std::mutex g_game_dir_mutex;
+std::mutex g_runtime_command_mutex;
+std::condition_variable g_runtime_command_cv;
+std::thread g_runtime_thread;
+bool g_runtime_stop_requested = false;
 std::string g_game_dir;
 uint32_t g_xbe_entry = 0;
 uint32_t g_xbe_kernel_thunk = 0;
@@ -146,6 +151,46 @@ void initializeXboxRuntimeLocked() {
     g_runtime_status = "Xbox guest memory and kernel thunk bridge ready; game entry point not started";
 }
 
+void runtimeThreadMain() {
+    {
+        std::lock_guard<std::mutex> lock(g_game_dir_mutex);
+        initializeXboxRuntimeLocked();
+    }
+
+    /* Keep the kernel's guest-thread identity alive. The eventual XBE entry
+     * point must run on this same thread because xbox_kernel_bridge_init()
+     * marks the calling thread as the guest thread. */
+    {
+        std::unique_lock<std::mutex> lock(g_runtime_command_mutex);
+        g_runtime_command_cv.wait(lock, [] { return g_runtime_stop_requested; });
+    }
+
+    {
+        std::lock_guard<std::mutex> lock(g_game_dir_mutex);
+        shutdownXboxRuntimeLocked();
+        g_runtime_status = "runtime shut down";
+    }
+}
+
+void stopRuntimeThread() {
+    if (!g_runtime_thread.joinable()) {
+        std::lock_guard<std::mutex> lock(g_game_dir_mutex);
+        shutdownXboxRuntimeLocked();
+        return;
+    }
+
+    {
+        std::lock_guard<std::mutex> lock(g_runtime_command_mutex);
+        g_runtime_stop_requested = true;
+    }
+    g_runtime_command_cv.notify_all();
+    g_runtime_thread.join();
+    {
+        std::lock_guard<std::mutex> lock(g_runtime_command_mutex);
+        g_runtime_stop_requested = false;
+    }
+}
+
 bool hasGameXbe() {
     if (g_game_dir.empty()) return false;
     const std::string path = g_game_dir + "/default.xbe";
@@ -227,14 +272,21 @@ extern "C" JNIEXPORT void JNICALL
 Java_com_cleiltonbr_moheuropeanassault_MainActivity_nativeSetGameDirectory(
     JNIEnv* env, jobject, jstring path) {
     const char* chars = path ? env->GetStringUTFChars(path, nullptr) : nullptr;
+    stopRuntimeThread();
+    bool startRuntime = false;
     {
         std::lock_guard<std::mutex> lock(g_game_dir_mutex);
-        shutdownXboxRuntimeLocked();
         g_game_dir = chars ? chars : "";
         inspectXbeLocked();
-        initializeXboxRuntimeLocked();
+        startRuntime = !g_xbe_image.empty() && g_xbe_entry && g_xbe_kernel_thunk;
+        if (startRuntime) {
+            g_runtime_stage.store(1);
+            g_runtime_status = "starting Xbox runtime worker";
+        }
     }
     if (chars) env->ReleaseStringUTFChars(path, chars);
+    if (startRuntime)
+        g_runtime_thread = std::thread(runtimeThreadMain);
 }
 
 extern "C" JNIEXPORT jstring JNICALL
@@ -263,8 +315,8 @@ Java_com_cleiltonbr_moheuropeanassault_MainActivity_nativeStart(
 
 extern "C" JNIEXPORT void JNICALL
 Java_com_cleiltonbr_moheuropeanassault_MainActivity_nativeShutdown(JNIEnv*, jobject) {
+    stopRuntimeThread();
     std::lock_guard<std::mutex> lock(g_game_dir_mutex);
-    shutdownXboxRuntimeLocked();
     g_runtime_status = "runtime shut down";
 }
 
