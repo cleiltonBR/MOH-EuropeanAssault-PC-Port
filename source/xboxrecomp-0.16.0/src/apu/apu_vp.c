@@ -31,8 +31,13 @@ extern volatile LONG g_audio_mark;      /* video/fb_present.c, F8 */
 #endif
 #define VEV_NOW() ((unsigned)GetTickCount())
 #else
-static volatile long g_audio_mark;
-#define LONG long
+/* The compatibility layer already defines LONG as a 32-bit Win32 type.
+ * Do not replace it with C long: Android arm64 uses LP64, where long is
+ * 64-bit and is incompatible with the Interlocked* declarations. */
+static volatile LONG g_audio_mark;
+#ifndef RECOMP_TLS
+#define RECOMP_TLS _Thread_local
+#endif
 #endif
 
 extern volatile long g_apu_dbg_voice_off, g_apu_dbg_notify, g_apu_dbg_voice_on;
