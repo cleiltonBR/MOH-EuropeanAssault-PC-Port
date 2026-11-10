@@ -11,23 +11,23 @@ add_library(xbox_apu STATIC
     apu_dsp.c
     apu_mmio_hook.c
     apu_xaudio2.c
-    apu_sdl2.c
     apu_wav.c
 )
 
 target_include_directories(xbox_apu PUBLIC ${CMAKE_CURRENT_SOURCE_DIR})
 
-# qemu_shim.h lives in nv2a/ - shared QEMU type abstraction
+# qemu_shim.h and the AArch64 MMIO decoder live in nv2a/.
 target_include_directories(xbox_apu PRIVATE
     ${CMAKE_CURRENT_SOURCE_DIR}/../nv2a
 )
+target_compile_features(xbox_apu PRIVATE c_std_11)
 
 if(MSVC)
     target_compile_options(xbox_apu PRIVATE
         /W3
-        /wd4244  # conversion warnings (float/double/int)
-        /wd4146  # unary minus on unsigned
-        /wd4267  # size_t to int conversion
+        /wd4244
+        /wd4146
+        /wd4267
     )
     target_compile_definitions(xbox_apu PRIVATE
         _CRT_SECURE_NO_WARNINGS
@@ -36,15 +36,14 @@ if(MSVC)
 endif()
 
 if(WIN32)
-    # xaudio2_8 for XAudio2Create, which apu_xaudio2.c calls directly.
-    # It was missing: nothing had ever referenced this library from a linked
-    # target, so the archive was built and never pulled in, and the first
-    # target to actually call into the APU failed at link with an undefined
-    # XAudio2Create rather than at build time here.
     target_link_libraries(xbox_apu PRIVATE platform kernel32 winmm xaudio2_8 ole32)
+elseif(ANDROID)
+    # Android uses the native AAudio device API; SDL2 is not part of this port.
+    target_sources(xbox_apu PRIVATE apu_aaudio.c)
+    target_link_libraries(xbox_apu PRIVATE platform aaudio m)
 else()
-    # POSIX (macOS, Linux): platform layer (Win32 primitives on POSIX),
-    # SDL2 for the audio device (apu_sdl2.c) and libm
+    # macOS and Linux use the SDL2 queue backend.
+    target_sources(xbox_apu PRIVATE apu_sdl2.c)
     find_package(SDL2 REQUIRED)
     target_link_libraries(xbox_apu PRIVATE platform SDL2::SDL2 m)
 endif()
