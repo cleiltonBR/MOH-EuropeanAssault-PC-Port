@@ -212,15 +212,19 @@ jobs:
             -DANDROID_ABI=arm64-v8a \
             -DANDROID_PLATFORM=android-26 \
             -DCMAKE_BUILD_TYPE=Debug \
-            -DMOH_BUILD_GENERATED_RECOMP=OFF
+            -DMOH_BUILD_GENERATED_RECOMP=OFF \
             -DCMAKE_EXPORT_COMPILE_COMMANDS=ON
 
       - name: Compile APU source apu_core.c (ARM64)
+        env:
+          APU_SOURCE: apu_core.c
         run: |
           python3 - <<'PY'
           import json, os, pathlib, shlex, subprocess, sys
-          db = json.load(open(os.path.join(os.environ["RUNNER_TEMP"], "moh-apu-arm64", "compile_commands.json"))
-          entry = next(e for e in db if pathlib.Path(e["file"]).name == "apu_core.c")
+          build = os.path.join(os.environ["RUNNER_TEMP"], "moh-apu-arm64")
+          with open(os.path.join(build, "compile_commands.json")) as f:
+              db = json.load(f)
+          entry = next(e for e in db if pathlib.Path(e["file"]).name == os.environ["APU_SOURCE"])
           command = entry.get("arguments") or shlex.split(entry["command"])
           result = subprocess.run(command, cwd=entry["directory"],
                                   stdout=subprocess.DEVNULL,
@@ -228,11 +232,15 @@ jobs:
           sys.exit(result.returncode)
           PY
       - name: Compile APU source apu_vp.c (ARM64)
+        env:
+          APU_SOURCE: apu_vp.c
         run: |
           python3 - <<'PY'
-          import json, pathlib, shlex, subprocess, sys
-          db = json.load(open("$RUNNER_TEMP/moh-apu-arm64/compile_commands.json"))
-          entry = next(e for e in db if pathlib.Path(e["file"]).name == "apu_vp.c")
+          import json, os, pathlib, shlex, subprocess, sys
+          build = os.path.join(os.environ["RUNNER_TEMP"], "moh-apu-arm64")
+          with open(os.path.join(build, "compile_commands.json")) as f:
+              db = json.load(f)
+          entry = next(e for e in db if pathlib.Path(e["file"]).name == os.environ["APU_SOURCE"])
           command = entry.get("arguments") or shlex.split(entry["command"])
           result = subprocess.run(command, cwd=entry["directory"],
                                   stdout=subprocess.DEVNULL,
@@ -240,11 +248,15 @@ jobs:
           sys.exit(result.returncode)
           PY
       - name: Compile APU source apu_dsp.c (ARM64)
+        env:
+          APU_SOURCE: apu_dsp.c
         run: |
           python3 - <<'PY'
-          import json, pathlib, shlex, subprocess, sys
-          db = json.load(open("$RUNNER_TEMP/moh-apu-arm64/compile_commands.json"))
-          entry = next(e for e in db if pathlib.Path(e["file"]).name == "apu_dsp.c")
+          import json, os, pathlib, shlex, subprocess, sys
+          build = os.path.join(os.environ["RUNNER_TEMP"], "moh-apu-arm64")
+          with open(os.path.join(build, "compile_commands.json")) as f:
+              db = json.load(f)
+          entry = next(e for e in db if pathlib.Path(e["file"]).name == os.environ["APU_SOURCE"])
           command = entry.get("arguments") or shlex.split(entry["command"])
           result = subprocess.run(command, cwd=entry["directory"],
                                   stdout=subprocess.DEVNULL,
@@ -252,11 +264,15 @@ jobs:
           sys.exit(result.returncode)
           PY
       - name: Compile APU source apu_mmio_hook.c (ARM64)
+        env:
+          APU_SOURCE: apu_mmio_hook.c
         run: |
           python3 - <<'PY'
-          import json, pathlib, shlex, subprocess, sys
-          db = json.load(open("$RUNNER_TEMP/moh-apu-arm64/compile_commands.json"))
-          entry = next(e for e in db if pathlib.Path(e["file"]).name == "apu_mmio_hook.c")
+          import json, os, pathlib, shlex, subprocess, sys
+          build = os.path.join(os.environ["RUNNER_TEMP"], "moh-apu-arm64")
+          with open(os.path.join(build, "compile_commands.json")) as f:
+              db = json.load(f)
+          entry = next(e for e in db if pathlib.Path(e["file"]).name == os.environ["APU_SOURCE"])
           command = entry.get("arguments") or shlex.split(entry["command"])
           result = subprocess.run(command, cwd=entry["directory"],
                                   stdout=subprocess.DEVNULL,
@@ -264,11 +280,15 @@ jobs:
           sys.exit(result.returncode)
           PY
       - name: Compile APU source apu_xaudio2.c (ARM64)
+        env:
+          APU_SOURCE: apu_xaudio2.c
         run: |
           python3 - <<'PY'
-          import json, pathlib, shlex, subprocess, sys
-          db = json.load(open("$RUNNER_TEMP/moh-apu-arm64/compile_commands.json"))
-          entry = next(e for e in db if pathlib.Path(e["file"]).name == "apu_xaudio2.c")
+          import json, os, pathlib, shlex, subprocess, sys
+          build = os.path.join(os.environ["RUNNER_TEMP"], "moh-apu-arm64")
+          with open(os.path.join(build, "compile_commands.json")) as f:
+              db = json.load(f)
+          entry = next(e for e in db if pathlib.Path(e["file"]).name == os.environ["APU_SOURCE"])
           command = entry.get("arguments") or shlex.split(entry["command"])
           result = subprocess.run(command, cwd=entry["directory"],
                                   stdout=subprocess.DEVNULL,
@@ -276,11 +296,15 @@ jobs:
           sys.exit(result.returncode)
           PY
       - name: Compile APU source apu_wav.c (ARM64)
+        env:
+          APU_SOURCE: apu_wav.c
         run: |
           python3 - <<'PY'
-          import json, pathlib, shlex, subprocess, sys
-          db = json.load(open("$RUNNER_TEMP/moh-apu-arm64/compile_commands.json"))
-          entry = next(e for e in db if pathlib.Path(e["file"]).name == "apu_wav.c")
+          import json, os, pathlib, shlex, subprocess, sys
+          build = os.path.join(os.environ["RUNNER_TEMP"], "moh-apu-arm64")
+          with open(os.path.join(build, "compile_commands.json")) as f:
+              db = json.load(f)
+          entry = next(e for e in db if pathlib.Path(e["file"]).name == os.environ["APU_SOURCE"])
           command = entry.get("arguments") or shlex.split(entry["command"])
           result = subprocess.run(command, cwd=entry["directory"],
                                   stdout=subprocess.DEVNULL,
@@ -288,11 +312,15 @@ jobs:
           sys.exit(result.returncode)
           PY
       - name: Compile APU source apu_aaudio.c (ARM64)
+        env:
+          APU_SOURCE: apu_aaudio.c
         run: |
           python3 - <<'PY'
-          import json, pathlib, shlex, subprocess, sys
-          db = json.load(open("$RUNNER_TEMP/moh-apu-arm64/compile_commands.json"))
-          entry = next(e for e in db if pathlib.Path(e["file"]).name == "apu_aaudio.c")
+          import json, os, pathlib, shlex, subprocess, sys
+          build = os.path.join(os.environ["RUNNER_TEMP"], "moh-apu-arm64")
+          with open(os.path.join(build, "compile_commands.json")) as f:
+              db = json.load(f)
+          entry = next(e for e in db if pathlib.Path(e["file"]).name == os.environ["APU_SOURCE"])
           command = entry.get("arguments") or shlex.split(entry["command"])
           result = subprocess.run(command, cwd=entry["directory"],
                                   stdout=subprocess.DEVNULL,
