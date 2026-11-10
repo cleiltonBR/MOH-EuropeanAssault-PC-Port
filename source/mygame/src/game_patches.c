@@ -6,11 +6,19 @@
  * sub_XXXXXXXX as a call to game_patch_XXXXXXXX, which is what keeps the
  * recompiler from generating the original (--exclude-manual).
  */
+#if defined(MOH_ANDROID_RUNTIME)
+#include "platform/xbox_winnt.h"
+#else
 #include <windows.h>
+#endif
 #include <stdio.h>
 #include <stdlib.h>
 #define RECOMP_GENERATED_CODE
+#if defined(MOH_ANDROID_RUNTIME)
+#include "recomp_funcs.h"
+#else
 #include "recomp/gen/recomp_funcs.h"
+#endif
 #include <math.h>
 void game_pc_note(uint32_t pc);
 extern int game_dev_keys(void);                     /* recomp_manual.c: RECOMP_DEV_KEYS=1 */
@@ -1384,7 +1392,9 @@ void game_patch_001AD630(void)
         MEMF(esp + 4) = acc;
         acc = 0.0f;
     }
+#if !defined(MOH_ANDROID_RUNTIME)
     emitter_reap();
+#endif
 loc_001AD630: ;
     PUSH32(esp, esi);
     esi = ecx;
@@ -1584,7 +1594,9 @@ void game_patch_001149E0(void)
     double _fca = 0.0, _fcb = 0.0;
     (void)_fca; (void)_fcb;
 
+#if !defined(MOH_ANDROID_RUNTIME)
     aim_inject_yaw();   /* PATCH: native mouse aim */
+#endif
 loc_001149E0: ;
     PUSH32(esp, ebp);
     ebp = esp;
@@ -1736,9 +1748,11 @@ void game_patch_00114B60(void)
     double _fca = 0.0, _fcb = 0.0;
     (void)_fca; (void)_fcb;
 
+#if !defined(MOH_ANDROID_RUNTIME)
     if (look_is_p1(ecx))
         game_pc_note(ecx); /* PROJ-PROBE: player character pointer (player 1 only) */
     aim_inject_pitch(); /* PATCH: native mouse aim */
+#endif
 loc_00114B60: ;
     xmm1 = XMM_SCALAR(MEMF(esp + 4)); /* movss */
     xmm0 = XMM_SCALAR(MEMF(ecx + 0x14C)); /* movss */
@@ -2129,7 +2143,9 @@ void game_patch_0011AC60(void)
     #define fp_st(i) g_fp_stack[(g_fp_top + (i)) & 7u]
     #define fp_st1() fp_st(1)
 
+#if !defined(MOH_ANDROID_RUNTIME)
     sprint_apply();     /* PATCH: sprint */
+#endif
 loc_0011AC60: ;
     PUSH32(esp, ebp);
     ebp = esp;
