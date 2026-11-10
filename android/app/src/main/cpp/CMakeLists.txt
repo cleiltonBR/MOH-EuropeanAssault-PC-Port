@@ -8,6 +8,12 @@ add_subdirectory(
     "${XBOXRECOMP_PLATFORM_DIR}"
     "${CMAKE_CURRENT_BINARY_DIR}/xboxrecomp-platform")
 
+# Android's audio device backend is native AAudio, not the desktop SDL2 path.
+get_filename_component(XBOXRECOMP_APU_DIR "${XBOXRECOMP_PLATFORM_DIR}/../apu" ABSOLUTE)
+add_subdirectory(
+    "${XBOXRECOMP_APU_DIR}"
+    "${CMAKE_CURRENT_BINARY_DIR}/xboxrecomp-apu")
+
 get_filename_component(XBOXRECOMP_KERNEL_DIR "${XBOXRECOMP_PLATFORM_DIR}/../kernel" ABSOLUTE)
 add_subdirectory(
     "${XBOXRECOMP_KERNEL_DIR}"
@@ -82,10 +88,6 @@ if(MOH_BUILD_GENERATED_RECOMP)
     target_compile_options(moh_generated_recomp_arm64 PRIVATE
         -include "${CMAKE_CURRENT_SOURCE_DIR}/recomp_sse_compat.h"
         -Wall -Wextra -Wno-parentheses-equality
-        # Decompiled sources intentionally retain labels/temporary variables
-        # from the original control-flow graph. Suppress only this generated
-        # code's high-volume diagnostics; project-owned Android code keeps its
-        # normal warning policy above.
         -Wno-unused-label
         -Wno-unused-variable
         -Wno-unused-but-set-variable
