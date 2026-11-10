@@ -60,15 +60,25 @@ if(MOH_BUILD_GENERATED_RECOMP)
         "${RECOMP_ROOT_DIR}/recomp_stubs_unresolved.c"
     )
     add_library(moh_generated_recomp_arm64 STATIC ${MOH_RECOMP_GENERATED_SOURCES})
+    get_filename_component(MOH_GAME_SRC_DIR
+        "${CMAKE_CURRENT_SOURCE_DIR}/../../../../../source/mygame/src" ABSOLUTE)
+    get_filename_component(XBOXRECOMP_SRC_DIR "${XBOXRECOMP_PLATFORM_DIR}/.." ABSOLUTE)
     target_sources(moh_generated_recomp_arm64 PRIVATE
         "${CMAKE_CURRENT_SOURCE_DIR}/recomp_android_hooks.c"
+        "${CMAKE_CURRENT_SOURCE_DIR}/recomp_android_game_hooks.c"
+        "${MOH_GAME_SRC_DIR}/game_patches.c"
     )
     target_include_directories(moh_generated_recomp_arm64 PRIVATE
         "${RECOMP_ROOT_DIR}"
         "${RECOMP_GEN_DIR}"
+        "${MOH_GAME_SRC_DIR}"
+        "${XBOXRECOMP_SRC_DIR}"
         "${CMAKE_CURRENT_SOURCE_DIR}"
     )
-    target_compile_definitions(moh_generated_recomp_arm64 PRIVATE RECOMP_GENERATED_CODE=1)
+    target_compile_definitions(moh_generated_recomp_arm64 PRIVATE
+        RECOMP_GENERATED_CODE=1
+        MOH_ANDROID_RUNTIME=1
+    )
     target_compile_options(moh_generated_recomp_arm64 PRIVATE
         -include "${CMAKE_CURRENT_SOURCE_DIR}/recomp_sse_compat.h"
         -Wall -Wextra -Wno-parentheses-equality
