@@ -220,6 +220,10 @@ void renderLoop(ANativeWindow* window) {
 }
 } // namespace
 
+extern "C" void moh_android_note_frame(void) {
+    g_frames.fetch_add(1);
+}
+
 extern "C" JNIEXPORT void JNICALL
 Java_com_cleiltonbr_moheuropeanassault_MainActivity_nativeSetGameDirectory(
     JNIEnv* env, jobject, jstring path) {
