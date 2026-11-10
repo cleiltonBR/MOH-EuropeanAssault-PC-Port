@@ -4,8 +4,6 @@
 #include <EGL/egl.h>
 #include <GLES3/gl3.h>
 #include "d3d8_xbox.h"
-#include "kernel.h"
-#include "xbox_memory_layout.h"
 #include <atomic>
 #include <chrono>
 #include <thread>
@@ -20,13 +18,6 @@
 extern "C" void d3d8_android_set_egl_surface(
     EGLDisplay display, EGLSurface surface, int width, int height);
 
-extern "C" {
-extern __thread uint32_t g_esp;
-int recomp_dispatch_init(void);
-}
-
-extern "C" void moh_android_note_frame(void);
-
 namespace {
 std::atomic<bool> g_running{false};
 std::thread g_thread;
@@ -38,10 +29,6 @@ std::string g_game_dir;
 uint32_t g_xbe_entry = 0;
 uint32_t g_xbe_kernel_thunk = 0;
 std::string g_xbe_validation = "XBE not inspected";
-std::string g_runtime_status = "waiting for game import";
-std::atomic<bool> g_runtime_requested{false};
-std::atomic<bool> g_runtime_ready{false};
-std::atomic<bool> g_runtime_attempted{false};
 std::vector<uint8_t> g_xbe_image;
 
 uint32_t readLe32(const std::vector<uint8_t>& bytes, size_t offset) {
@@ -105,19 +92,8 @@ bool hasGameXbe() {
     return stat(path.c_str(), &info) == 0 && S_ISREG(info.st_mode);
 }
 
-void setRuntimeStatus(const std::string& value) {
-    std::lock_guard<std::mutex> lock(g_game_dir_mutex);
-    g_runtime_status = value;
-}
-
 void renderLoop(ANativeWindow* window) {
     g_stage.store(1); g_error.store(0); g_frames.store(0);
-    bool runtimeMemoryReady = false;
-    bool runtimeKernelReady = false;
-    {
-        std::lock_guard<std::mutex> lock(g_game_dir_mutex);
-        if (!g_xbe_image.empty()) g_runtime_requested.store(true);
-    }
     EGLDisplay display = eglGetDisplay(EGL_DEFAULT_DISPLAY);
     if (display == EGL_NO_DISPLAY || !eglInitialize(display, nullptr, nullptr)) {
         ANativeWindow_release(window);
@@ -161,57 +137,16 @@ void renderLoop(ANativeWindow* window) {
     if (createResult == 0 && device) {
         g_stage.store(6);
         while (g_running.load()) {
-            if (!g_runtime_ready.load() && g_runtime_requested.exchange(false) &&
-                !g_runtime_attempted.exchange(true)) {
-                std::vector<uint8_t> xbe;
-                std::string gameDir;
-                {
-                    std::lock_guard<std::mutex> lock(g_game_dir_mutex);
-                    xbe = g_xbe_image;
-                    gameDir = g_game_dir;
-                }
-                if (!xbe.empty() && !gameDir.empty()) {
-                    g_stage.store(7);
-                    if (xbox_MemoryLayoutInit(xbe.data(), xbe.size())) {
-                        runtimeMemoryReady = true;
-                        g_stage.store(8);
-                        xbox_kernel_init();
-                        runtimeKernelReady = true;
-                        const std::string saveDir = gameDir + "/saves";
-                        xbox_path_init(gameDir.c_str(), saveDir.c_str());
-                        xbox_kernel_bridge_init();
-                        g_esp = XBOX_STACK_TOP;
-                        const int dispatchReady = recomp_dispatch_init();
-                        g_runtime_ready.store(true);
-                        g_stage.store(9);
-                        setRuntimeStatus(dispatchReady
-                            ? "XBE sections mapped; Xbox kernel and thunk bridge ready; dispatcher prepared. Game entry point not started yet."
-                            : "XBE sections mapped; Xbox kernel and thunk bridge ready; dispatcher will use fallback lookup. Game entry point not started yet.");
-                    } else {
-                        xbox_MemoryLayoutShutdown();
-                        g_error.store(-8);
-                        g_stage.store(-8);
-                        setRuntimeStatus("Xbox guest-memory/XBE section initialization failed.");
-                    }
-                } else {
-                    setRuntimeStatus("XBE is not ready; waiting for a valid default.xbe.");
-                }
-            }
             HRESULT clearResult = device->lpVtbl->Clear(
                 device, 0, nullptr, D3DCLEAR_TARGET, 0xFF17365Du, 1.0f, 0);
             if (clearResult != 0) { g_error.store(clearResult); g_stage.store(-7); break; }
             HRESULT presentResult = device->lpVtbl->Present(
                 device, nullptr, nullptr, nullptr, nullptr);
             if (presentResult != 0) { g_error.store(presentResult); g_stage.store(-5); break; }
+            g_frames.fetch_add(1);
             std::this_thread::sleep_for(std::chrono::milliseconds(16));
         }
     } else { g_error.store(createResult); g_stage.store(-6); }
-    if (runtimeKernelReady) xbox_kernel_shutdown();
-    if (runtimeMemoryReady) xbox_MemoryLayoutShutdown();
-    g_runtime_ready.store(false);
-    g_runtime_attempted.store(false);
-    if (runtimeMemoryReady)
-        setRuntimeStatus("Xbox runtime shut down with the Android graphics surface.");
     d3d8_android_set_egl_surface(EGL_NO_DISPLAY, EGL_NO_SURFACE, 0, 0);
     eglMakeCurrent(display, EGL_NO_SURFACE, EGL_NO_SURFACE, EGL_NO_CONTEXT);
     eglDestroySurface(display, surface);
@@ -222,10 +157,6 @@ void renderLoop(ANativeWindow* window) {
 }
 } // namespace
 
-extern "C" void moh_android_note_frame(void) {
-    g_frames.fetch_add(1);
-}
-
 extern "C" JNIEXPORT void JNICALL
 Java_com_cleiltonbr_moheuropeanassault_MainActivity_nativeSetGameDirectory(
     JNIEnv* env, jobject, jstring path) {
@@ -234,25 +165,20 @@ Java_com_cleiltonbr_moheuropeanassault_MainActivity_nativeSetGameDirectory(
         std::lock_guard<std::mutex> lock(g_game_dir_mutex);
         g_game_dir = chars ? chars : "";
         inspectXbeLocked();
-        g_runtime_attempted.store(false);
-        g_runtime_requested.store(!g_xbe_image.empty() && g_xbe_entry != 0 && g_xbe_kernel_thunk != 0);
-        g_runtime_status = g_xbe_image.empty()
-            ? "waiting for game import"
-            : "XBE validated; waiting for Android graphics thread to initialize runtime";
     }
     if (chars) env->ReleaseStringUTFChars(path, chars);
 }
 
 extern "C" JNIEXPORT jstring JNICALL
 Java_com_cleiltonbr_moheuropeanassault_MainActivity_nativeStatus(JNIEnv* env, jobject) {
-    char message[640];
+    char message[384];
     std::lock_guard<std::mutex> lock(g_game_dir_mutex);
     const bool xbeReady = hasGameXbe();
     snprintf(message, sizeof(message),
-        "stage=%d frames=%llu error=0x%08X. XBE %s (%zu bytes loaded); %s; entry=0x%08X thunk=0x%08X. Runtime: %s",
+        "stage=%d frames=%llu error=0x%08X. XBE %s (%zu bytes loaded); %s; entry=0x%08X thunk=0x%08X.",
         g_stage.load(), g_frames.load(), static_cast<unsigned int>(g_error.load()),
         xbeReady ? "imported" : "not imported", g_xbe_image.size(), g_xbe_validation.c_str(),
-        g_xbe_entry, g_xbe_kernel_thunk, g_runtime_status.c_str());
+        g_xbe_entry, g_xbe_kernel_thunk);
     return env->NewStringUTF(message);
 }
 
