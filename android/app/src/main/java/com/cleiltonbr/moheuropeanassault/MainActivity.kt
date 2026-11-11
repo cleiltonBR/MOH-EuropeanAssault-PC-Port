@@ -46,7 +46,7 @@ class MainActivity : Activity(), SurfaceHolder.Callback {
         Thread.setDefaultUncaughtExceptionHandler { thread, error ->
             appendLocalLog("FATAL JAVA EXCEPTION on " + thread.name + ": " + android.util.Log.getStackTraceString(error))
             val marker = File(filesDir, "moh-crash.marker")
-            try { marker.writeText("java-crash\\n") } catch (_: Exception) { }
+            try { marker.writeText("java-crash\n") } catch (_: Exception) { }
             android.os.Process.killProcess(android.os.Process.myPid())
         }
         appendLocalLog("App: onCreate")
