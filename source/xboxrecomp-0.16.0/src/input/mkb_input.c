@@ -379,7 +379,7 @@ volatile LONG g_mkb_zoom_steps;
 volatile unsigned g_mkb_rt_presses;   /* fire-rate gate: physical right-trigger presses */
 volatile double g_mkb_gate_until_ms;    /* fire-rate gate: trigger reads released until this QPC time (ms) */
 volatile int g_mkb_scoped;           /* set by the port while a scope is up (game fov under 60 degrees) */      /* scope zoom: wheel notches and numpad +/- in play (+ = zoom in); the port uses them only while a scope is up */
-volatile LONG g_mkb_fog_steps;          /* F2 / F3: fog distance multiplier down / up */
+extern volatile LONG g_mkb_fog_steps;  /* shared state: F2 / F3 adjust fog */
 volatile LONG g_mkb_draw_steps;         /* F4 / F5: draw distance multiplier down / up */
 volatile LONG g_mkb_pin_toggles;        /* F8: game loop on its own core on / off (mygame main.c) */
 volatile LONG g_mkb_cap_toggles;        /* F12: small-object distance cap on / off (mygame recomp_manual.c) */
