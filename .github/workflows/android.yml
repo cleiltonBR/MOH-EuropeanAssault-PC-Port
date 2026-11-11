@@ -97,11 +97,24 @@ jobs:
           for BUILD_FILE in "${BUILD_FILES[@]}"; do
             BUILD_DIR="$(dirname "$BUILD_FILE")"
             echo "Build directory: ${BUILD_DIR#android/app/.cxx/}" >> "$REPORT"
-            for TARGET in platform xbox_apu xbox_kernel xbox_d3d8 moh_generated_recomp_arm64 moh_android; do
+            for TARGET in platform xbox_apu xbox_kernel xbox_d3d8 moh_generated_recomp_arm64; do
               cmake --build "$BUILD_DIR" --target "$TARGET" --parallel 2 >/dev/null 2>&1
               RESULT=$?
-              printf '%-32s exit=%s\n' "$TARGET" "$RESULT" >> "$REPORT"
+              printf '%-32s exit=%s\\n' "$TARGET" "$RESULT" >> "$REPORT"
             done
+            mapfile -t NATIVE_OBJECTS < <(ninja -C "$BUILD_DIR" -t targets all 2>/dev/null | awk -F: '$1 ~ /native_entry\\.cpp\\.o$/ {print $1}')
+            if [ "${#NATIVE_OBJECTS[@]}" -eq 0 ]; then
+              echo "native_entry.cpp object target not found" >> "$REPORT"
+            else
+              for OBJECT in "${NATIVE_OBJECTS[@]}"; do
+                ninja -C "$BUILD_DIR" "$OBJECT" >/dev/null 2>&1
+                RESULT=$?
+                printf 'native_entry.cpp compile         exit=%s\\n' "$RESULT" >> "$REPORT"
+              done
+            fi
+            ninja -C "$BUILD_DIR" libmoh_android.so >/dev/null 2>&1
+            RESULT=$?
+            printf 'libmoh_android.so link            exit=%s\\n' "$RESULT" >> "$REPORT"
           done
           for ARCHIVE in android/app/.cxx/Debug/*/arm64-v8a/*.a; do
             [ -f "$ARCHIVE" ] && printf 'archive-present %s bytes=%s\n' "$ARCHIVE" "$(stat -c %s "$ARCHIVE")" >> "$REPORT"
