@@ -239,13 +239,11 @@ void fatalSignalHandler(int signalNumber, siginfo_t* info, void* rawContext) {
                 writeHexValue(fd, (uintptr_t)context->uc_mcontext.regs[28]);
                 (void)write(fd, x29Prefix, sizeof(x29Prefix) - 1);
                 writeHexValue(fd, (uintptr_t)context->uc_mcontext.regs[29]);
-                static const char stackPrefix[] = " stack_words=";
-                (void)write(fd, stackPrefix, sizeof(stackPrefix) - 1);
-                const volatile uintptr_t* stack = reinterpret_cast<const volatile uintptr_t*>(context->uc_mcontext.sp);
-                for (int i = 0; i < 16; ++i) {
-                    if (i) (void)write(fd, ",", 1);
-                    writeHexValue(fd, stack[i]);
-                }
+                /* Do not dereference the interrupted SP in a signal handler.
+                 * The stack may be the cause of the fault or may no longer be
+                 * mapped; a second SIGSEGV here destroys the original report. */
+                static const char stackNote[] = " stack_words=(not-read; unsafe in signal handler)";
+                (void)write(fd, stackNote, sizeof(stackNote) - 1);
             }
 #endif
             (void)write(fd, "\n", 1);
