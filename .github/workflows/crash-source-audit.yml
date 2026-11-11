@@ -1,4 +1,4 @@
-name: Inspect Android crash function in generated sources
+name: Inspect Android crash helper in generated sources
 
 on:
   push:
@@ -51,7 +51,7 @@ jobs:
           import pathlib, re, sys
           root = pathlib.Path(sys.argv[1])
           output = pathlib.Path(sys.argv[2])
-          symbol = "sub_00108315"
+          symbol = "sub_001F47B0"
           rows = []
           header = root / "recomp_types.h"
           hlines = header.read_text(errors="replace").splitlines()
