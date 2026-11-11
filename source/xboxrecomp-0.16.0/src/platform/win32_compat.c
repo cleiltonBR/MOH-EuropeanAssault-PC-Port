@@ -1795,13 +1795,13 @@ static int view_release_range(const void *addr, size_t len)
 
 /* An unnamed file descriptor that ftruncate and mmap both accept. Linux has
  * memfd_create for this; elsewhere an immediately-unlinked temp file does. */
-static int anon_map_fd(const char *name)
+static int anon_map_fd(const char *name, size_t size)
 {
 #if defined(__ANDROID__)
-    /* Android's NDK exposes anonymous shared memory through libandroid.
-     * Create a one-byte region here; CreateFileMappingA immediately resizes
-     * the fd to the requested mapping size with ftruncate(). */
-    return ASharedMemory_create(name ? name : "moh_xbox_map", 1);
+    /* Android shared-memory fds are created at their final size. Ashmem
+     * regions cannot be resized with ftruncate(): creating a 1-byte region
+     * and extending it later fails with EINVAL/ENOMEM on Android. */
+    return ASharedMemory_create(name ? name : "moh_xbox_map", size);
 #elif defined(__APPLE__)
     static volatile LONG map_counter = 0;
     /* The pid keeps two instances apart: with a bare counter, both open
@@ -1825,13 +1825,17 @@ HANDLE CreateFileMappingA(HANDLE file, LPSECURITY_ATTRIBUTES sa, DWORD protect,
     SIZE_T size = ((SIZE_T)maxSizeHigh << 32) | maxSizeLow;
     if (size == 0) { SetLastError(ERROR_INVALID_PARAMETER); return NULL; }
 
-    int fd = anon_map_fd(name);
+    int fd = anon_map_fd(name, size);
     if (fd < 0) { SetLastError(ERROR_NOT_ENOUGH_MEMORY); return NULL; }
+#if !defined(__ANDROID__)
+    /* memfd/shm objects start empty and must be sized explicitly. Android's
+     * ASharedMemory_create() above already returns a region of this size. */
     if (ftruncate(fd, (off_t)size) != 0) {
         close(fd);
         SetLastError(ERROR_NOT_ENOUGH_MEMORY);
         return NULL;
     }
+#endif
 
     w32_object *o = obj_alloc(K_FILEMAP);
     o->fd       = fd;
