@@ -212,6 +212,7 @@ class MainActivity : Activity(), SurfaceHolder.Callback {
                     }
 
                     val selectedMaps = sortedSetOf<String>()
+                    val snapshotMaps = mutableListOf<String>()
                     var inCrashSnapshot = false
                     java.io.RandomAccessFile(logFile, "r").use { input ->
                         while (true) {
@@ -223,6 +224,7 @@ class MainActivity : Activity(), SurfaceHolder.Callback {
                                     val trimmed = line.trimStart()
                                     val match = mapPattern.find(trimmed)
                                     if (match != null) {
+                                        snapshotMaps.add(trimmed)
                                         val mapStart = match.groupValues[1].toULongOrNull(16)
                                         val mapEnd = match.groupValues[2].toULongOrNull(16)
                                         if (mapStart != null && mapEnd != null &&
@@ -261,6 +263,21 @@ class MainActivity : Activity(), SurfaceHolder.Callback {
                         append("No mapping contained fault_addr, PC, SP or LR.\n")
                     } else {
                         selectedMaps.forEach { append(it).append('\n') }
+                    }
+                    append("\nComplete pre-entry memory map snapshot (first 24 KiB):\n")
+                    if (snapshotMaps.isEmpty()) {
+                        append("No pre-entry memory map snapshot was recorded.\n")
+                    } else {
+                        var snapshotBytes = 0
+                        for (mapping in snapshotMaps) {
+                            val lineBytes = mapping.toByteArray(Charsets.UTF_8).size + 1
+                            if (snapshotBytes + lineBytes > 24 * 1024) {
+                                append("[Remaining memory map entries omitted to keep the diagnostic report bounded.]\n")
+                                break
+                            }
+                            append(mapping).append('\n')
+                            snapshotBytes += lineBytes
+                        }
                     }
                 } catch (e: Exception) {
                     append("Could not read runtime log: ").append(e.message)
