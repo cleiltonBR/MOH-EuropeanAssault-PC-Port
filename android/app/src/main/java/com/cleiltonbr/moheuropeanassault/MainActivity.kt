@@ -196,7 +196,7 @@ class MainActivity : Activity(), SurfaceHolder.Callback {
                         .append(" pss_kb=").append(info.pss)
                         .append(" rss_kb=").append(info.rss)
                         .append("\\n description=").append(info.description ?: "(none)")
-                        .append('\\n')
+                        .append('\n')
                 }
             })
         } catch (e: Exception) {
