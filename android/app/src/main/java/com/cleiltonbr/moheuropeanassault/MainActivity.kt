@@ -181,16 +181,23 @@ class MainActivity : Activity(), SurfaceHolder.Callback {
                         input.seek(start)
                         val bytes = ByteArray((length - start).toInt())
                         input.readFully(bytes)
+                        val logText = String(bytes, Charsets.UTF_8)
+                        val usefulLines = logText.lineSequence().filterNot { line ->
+                            val trimmed = line.trimStart()
+                            trimmed.startsWith("Diagnostics: begin /proc/self/maps") ||
+                                trimmed.startsWith("Diagnostics: end /proc/self/maps") ||
+                                Regex("^[0-9a-fA-F]+-[0-9a-fA-F]+\\s").containsMatchIn(trimmed)
+                        }.joinToString("\\n")
                         if (start > 0) append("[Earlier log content omitted; showing last 48 KiB.]\\n")
-                        append(String(bytes, Charsets.UTF_8))
+                        append(usefulLines.takeLast(48 * 1024))
                     }
                 } catch (e: Exception) {
                     append("Could not read runtime log: ").append(e.message)
                 }
             } else append("No runtime log found.")
             if (marker.exists()) {
-                try { append("\\n\\nCrash marker:\\n").append(marker.readText().take(1024)) }
-                catch (e: Exception) { append("\\nCrash marker could not be read: ").append(e.message) }
+                try { append("\n\nCrash marker:\n").append(marker.readText().take(1024)) }
+                catch (e: Exception) { append("\nCrash marker could not be read: ").append(e.message) }
             }
         }
         val send = Intent(Intent.ACTION_SEND).apply {
