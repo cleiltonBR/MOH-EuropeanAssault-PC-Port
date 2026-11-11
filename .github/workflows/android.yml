@@ -73,9 +73,10 @@ jobs:
               "vsnprintf", "sscanf", "fputs", "puts", "printf",
               "fprintf", "vfprintf"
           }
-          call_re = re.compile(r"\\b(" + "|".join(sorted(apis, key=len, reverse=True)) + r")\\s*\\(")
-          ptr_re = re.compile(r"(?:g_(?:eax|ecx|edx|ebx|esi|edi|esp|ebp)|\\b[a-zA-Z_]\\w*(?:_va|_ptr|_addr|_buffer|_buf)\\b|\\(\\s*(?:const\\s+)?(?:void|char|uint8_t|uint16_t|uint32_t|uintptr_t)\\s*\\*|\\bMEM(?:8|16|32|64)\\s*\\()")
-          translated_re = re.compile(r"XBOX_PTR|g_xbox_mem_offset|\\b_mo\\b")
+          call_re = re.compile(r"\b(" + "|".join(sorted(apis, key=len, reverse=True)) + r")\s*\(")
+          # Deliberately conservative: avoid complex cast syntax in this audit.
+          ptr_re = re.compile(r"g_(?:eax|ecx|edx|ebx|esi|edi|esp|ebp)|\b[A-Za-z_]\w*(?:_va|_ptr|_addr|_buffer|_buf)\b|\bMEM(?:8|16|32|64)\s*\(")
+          translated_re = re.compile(r"XBOX_PTR|g_xbox_mem_offset|\b_mo\b")
           rows = []
           for path in sorted(root.rglob("*")):
               if path.suffix.lower() not in {".c", ".h", ".cc", ".cpp", ".hpp"}:
@@ -200,7 +201,7 @@ jobs:
         run: gradle --no-daemon -p android :app:assembleDebug
 
       - name: Inspect generated-code link dependencies (metadata only)
-        if: always()
+        if: success()
         shell: bash
         run: |
           set -euo pipefail
@@ -310,7 +311,7 @@ jobs:
           cp "$REPORT" android/recomp-linkage-report/linkage.txt
 
       - name: Upload generated-code linkage inventory
-        if: always()
+        if: success()
         uses: actions/upload-artifact@v4
         with:
           name: moh-generated-code-linkage-inventory
