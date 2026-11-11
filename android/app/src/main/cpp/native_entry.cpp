@@ -23,6 +23,7 @@
 #include <fcntl.h>
 #include <limits.h>
 #include <ucontext.h>
+#include <dlfcn.h>
 
 extern "C" void (*recomp_lookup(uint32_t xbox_va))(void);
 /* The recompiler models x86 registers as thread-local state. MemoryLayoutInit
@@ -214,6 +215,39 @@ void shutdownXboxRuntimeLocked() {
     g_runtime_stage.store(0);
 }
 
+void logGuestAddressDiagnostics(void (*entry)(void)) {
+    char line[512];
+    void *base = xbox_GetMemoryBase();
+    const ptrdiff_t offset = xbox_GetMemoryOffset();
+    snprintf(line, sizeof(line),
+        "Memory map: base=%p offset=%+td mapped=%zu bytes image=0x%08X..0x%08X stack=0x%08X..0x%08X esp=0x%08X",
+        base, offset, xbox_GetMappedSize(), g_xbox_image_lo, g_xbox_image_hi,
+        g_xbox_stack_base, g_xbox_stack_base + g_xbox_stack_size, g_esp);
+    appendRuntimeLog(line);
+    snprintf(line, sizeof(line),
+        "Memory translation: guest 0x00F7FC04 -> host %p; direct guest VA=%p",
+        reinterpret_cast<void*>(static_cast<uintptr_t>(0x00F7FC04u) + offset),
+        reinterpret_cast<void*>(static_cast<uintptr_t>(0x00F7FC04u)));
+    appendRuntimeLog(line);
+    Dl_info info{};
+    if (entry && dladdr(reinterpret_cast<void*>(entry), &info) && info.dli_fname) {
+        snprintf(line, sizeof(line), "Dispatcher entry: ptr=%p module=%s symbol=%s symbol_addr=%p",
+            reinterpret_cast<void*>(entry), info.dli_fname,
+            info.dli_sname ? info.dli_sname : "(unknown)", info.dli_saddr);
+        appendRuntimeLog(line);
+    } else {
+        snprintf(line, sizeof(line), "Dispatcher entry: ptr=%p module lookup unavailable",
+            reinterpret_cast<void*>(entry));
+        appendRuntimeLog(line);
+    }
+    /* Save the process map before entering generated code. The signal handler
+     * stays async-signal-safe; the host PC from a later crash can be resolved
+     * against this snapshot without calling dladdr from inside the handler. */
+    std::ifstream maps("/proc/self/maps");
+    while (std::getline(maps, line))
+        appendRuntimeLog(line);
+}
+
 void initializeXboxRuntimeLocked() {
     uint32_t thunk_va = 0;
     uint32_t thunk_count = 0;
@@ -295,6 +329,7 @@ void initializeXboxRuntimeLocked() {
     g_runtime_stage.store(5);
     g_runtime_status = "starting recompiled XBE entry point";
     appendRuntimeLog("Runtime: calling generated XBE entry point");
+    logGuestAddressDiagnostics(entry);
     fflush(stdout);
     entry();
     appendRuntimeLog("Runtime: generated XBE entry point returned");
