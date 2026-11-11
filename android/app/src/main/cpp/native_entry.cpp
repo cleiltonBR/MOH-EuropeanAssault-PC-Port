@@ -75,6 +75,8 @@ void writeHexValue(int fd, uintptr_t value) {
 }
 
 
+void appendRuntimeLog(const char* message);
+
 void appendProcessMaps() {
     std::ifstream maps("/proc/self/maps");
     if (!maps) { appendRuntimeLog("Diagnostics: could not read /proc/self/maps"); return; }
