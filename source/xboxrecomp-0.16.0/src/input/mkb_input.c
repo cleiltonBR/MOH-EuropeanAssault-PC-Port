@@ -577,29 +577,6 @@ static DWORD WINAPI mkb_thread(LPVOID unused)
     return 0;
 }
 
-/* ---- memory snapshots for scripted runs ---------------------------------
- * The pad script's "snap:<n>" line lands here: guest RAM 0x10000..64 MB and
- * the contiguous window 0x80000000..+64 MB, raw and back to back, into
- * <RECOMP_MKB_SNAPDIR>/snap_<n>.bin. Comparing a run's snapshots finds the
- * title's state flags (in a menu, paused, in play). */
-extern ptrdiff_t g_xbox_mem_offset;
-
-void mkb_snapshot(int n)
-{
-    const char *dir = getenv("RECOMP_MKB_SNAPDIR");
-    char path[600];
-    FILE *f;
-    snprintf(path, sizeof path, "%s/snap_%d.bin", dir && *dir ? dir : ".", n);
-    f = fopen(path, "wb");
-    if (!f)
-        return;
-    fwrite((const void *)((uintptr_t)g_xbox_mem_offset + 0x10000u), 1, 0x04000000u - 0x10000u, f);
-    fwrite((const void *)((uintptr_t)g_xbox_mem_offset + 0x80000000u), 1, 0x04000000u, f);
-    fclose(f);
-    fprintf(stderr, "  [SNAP] %d -> %s\n", n, path);
-    fflush(stderr);
-}
-
 /* ---- native aim (see mkb_input.h) -------------------------------------- */
 
 static volatile LONG s_native_tick = -100000;  /* GetTickCount of the last take */
