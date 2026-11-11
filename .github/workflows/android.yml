@@ -81,6 +81,7 @@ jobs:
         run: gradle --no-daemon -p android :app:assembleDebug
 
       - name: Inspect generated-code link dependencies (metadata only)
+        if: always()
         shell: bash
         run: |
           set -euo pipefail
@@ -111,14 +112,22 @@ jobs:
               echo "Android xbox_kernel archive not found"
               exit 1
             fi
+            : > "$RUNNER_TEMP/runtime-defined-all.txt"
+            for ARCHIVE_NAME in libplatform.a libxbox_apu.a libxbox_kernel.a libxbox_d3d8.a; do
+              RUNTIME_ARCHIVE="$(find android/app/.cxx -type f -name "$ARCHIVE_NAME" -print -quit)"
+              if [ -n "$RUNTIME_ARCHIVE" ]; then
+                "$NM" --defined-only "$RUNTIME_ARCHIVE" | awk '{print $NF}' >> "$RUNNER_TEMP/runtime-defined-all.txt"
+              fi
+            done
+            sort -u "$RUNNER_TEMP/runtime-defined-all.txt" > "$RUNNER_TEMP/runtime-defined.txt"
             "$NM" --defined-only "$KERNEL_ARCHIVE" | awk '{print $NF}' | sort -u > "$RUNNER_TEMP/kernel-defined.txt"
-            cat "$RUNNER_TEMP/recomp-defined.txt" "$RUNNER_TEMP/kernel-defined.txt" | sort -u > "$RUNNER_TEMP/recomp-runtime-defined.txt"
+            cat "$RUNNER_TEMP/recomp-defined.txt" "$RUNNER_TEMP/runtime-defined.txt" | sort -u > "$RUNNER_TEMP/recomp-runtime-defined.txt"
             comm -23 "$RUNNER_TEMP/recomp-undefined.txt" "$RUNNER_TEMP/recomp-runtime-defined.txt" > "$RUNNER_TEMP/recomp-external.txt"
             comm -23 "$RUNNER_TEMP/recomp-undefined.txt" "$RUNNER_TEMP/recomp-defined.txt" > "$RUNNER_TEMP/recomp-outside-generated.txt"
             comm -23 "$RUNNER_TEMP/recomp-outside-generated.txt" "$RUNNER_TEMP/kernel-defined.txt" > "$RUNNER_TEMP/recomp-not-in-kernel.txt"
             echo "Unique undefined references across objects: $(wc -l < "$RUNNER_TEMP/recomp-undefined.txt")"
             echo "Symbols defined inside generated archive: $(wc -l < "$RUNNER_TEMP/recomp-defined.txt")"
-            echo "Symbols supplied by existing Android kernel archive: $(wc -l < "$RUNNER_TEMP/kernel-defined.txt")"
+            echo "Symbols supplied by Android static runtime archives: $(wc -l < "$RUNNER_TEMP/runtime-defined.txt")"
             echo "Remaining external symbols after generated + kernel definitions: $(wc -l < "$RUNNER_TEMP/recomp-external.txt")"
             echo
             echo "Remaining external symbols (runtime libraries or missing implementations):"
@@ -182,6 +191,7 @@ jobs:
           cp "$REPORT" android/recomp-linkage-report/linkage.txt
 
       - name: Upload generated-code linkage inventory
+        if: always()
         uses: actions/upload-artifact@v4
         with:
           name: moh-generated-code-linkage-inventory
