@@ -65,7 +65,7 @@ void appendRuntimeLog(const char* message) {
     (void)write(fd, "\n", 1);
     close(fd);
 }
-void fatalSignalHandler(int signalNumber, siginfo_t*, void*) {
+void fatalSignalHandler(int signalNumber, siginfo_t* info, void*) {
     if (g_log_path[0]) {
         int fd = open(g_log_path, O_WRONLY | O_CREAT | O_APPEND | O_CLOEXEC, 0600);
         if (fd >= 0) {
@@ -267,6 +267,7 @@ void renderLoop(ANativeWindow* window) {
     g_stage.store(1); g_error.store(0); g_frames.store(0);
     EGLDisplay display = eglGetDisplay(EGL_DEFAULT_DISPLAY);
     if (display == EGL_NO_DISPLAY || !eglInitialize(display, nullptr, nullptr)) {
+        appendRuntimeLog("Renderer: eglInitialize failed");
         ANativeWindow_release(window);
         g_running.store(false);
         return;
@@ -278,6 +279,7 @@ void renderLoop(ANativeWindow* window) {
     EGLConfig config = nullptr;
     EGLint configCount = 0;
     if (!eglChooseConfig(display, configAttrs, &config, 1, &configCount) || configCount < 1) {
+        appendRuntimeLog("Renderer: eglChooseConfig failed");
         eglTerminate(display); ANativeWindow_release(window); g_running.store(false); return;
     }
     const EGLint contextAttrs[] = {EGL_CONTEXT_CLIENT_VERSION, 3, EGL_NONE};
@@ -287,6 +289,7 @@ void renderLoop(ANativeWindow* window) {
         !eglMakeCurrent(display, surface, surface, context)) {
         if (surface != EGL_NO_SURFACE) eglDestroySurface(display, surface);
         if (context != EGL_NO_CONTEXT) eglDestroyContext(display, context);
+        appendRuntimeLog("Renderer: EGL context or window surface creation failed");
         eglTerminate(display); ANativeWindow_release(window); g_running.store(false); return;
     }
     GLint width = 0, height = 0;
@@ -327,7 +330,12 @@ void renderLoop(ANativeWindow* window) {
             g_frames.fetch_add(1);
             std::this_thread::sleep_for(std::chrono::milliseconds(16));
         }
-    } else { g_error.store(createResult); g_stage.store(-6); }
+    } else {
+        char createMessage[128];
+        snprintf(createMessage, sizeof(createMessage), "Renderer: D3D8 CreateDevice failed HRESULT=0x%08X", (unsigned int)createResult);
+        appendRuntimeLog(createMessage);
+        g_error.store(createResult); g_stage.store(-6);
+    }
     /* Tear down guest kernel/memory on the same thread that initialized them,
      * before releasing the EGL context used by the Android D3D8 backend. */
     {
@@ -362,6 +370,11 @@ Java_com_cleiltonbr_moheuropeanassault_MainActivity_nativeSetGameDirectory(
         std::lock_guard<std::mutex> lock(g_game_dir_mutex);
         g_game_dir = chars ? chars : "";
         inspectXbeLocked();
+        char importMessage[256];
+        snprintf(importMessage, sizeof(importMessage),
+            "Import: XBE bytes=%zu entry=0x%08X thunk=0x%08X validation=%s",
+            g_xbe_image.size(), g_xbe_entry, g_xbe_kernel_thunk, g_xbe_validation.c_str());
+        appendRuntimeLog(importMessage);
         if (!g_xbe_image.empty() && g_xbe_entry && g_xbe_kernel_thunk) {
             g_runtime_stage.store(1);
             g_runtime_status = "waiting for EGL render thread";
