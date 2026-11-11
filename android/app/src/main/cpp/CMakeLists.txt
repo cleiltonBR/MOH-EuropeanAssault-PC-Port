@@ -101,7 +101,25 @@ if(MOH_BUILD_GENERATED_RECOMP)
     )
     target_link_libraries(moh_generated_recomp_arm64 PRIVATE m)
     add_dependencies(moh_android moh_generated_recomp_arm64)
-    target_compile_definitions(moh_android PRIVATE MOH_GENERATED_RECOMP_COMPILED=1)
+    # The kernel bridge resolves guest-created threads through recomp_lookup().
+    # Link the generated dispatcher now that Android guest memory and kernel
+    # startup are wired. Repeat the runtime archives to resolve the static
+    # kernel <-> generated-code dependency cycle.
+    target_include_directories(moh_android PRIVATE
+        "${RECOMP_ROOT_DIR}"
+        "${RECOMP_GEN_DIR}"
+    )
+    target_link_libraries(moh_android PRIVATE
+        moh_generated_recomp_arm64
+        xbox_kernel
+        xbox_apu
+        xbox_d3d8
+        platform
+    )
+    target_compile_definitions(moh_android PRIVATE
+        MOH_GENERATED_RECOMP_COMPILED=1
+        MOH_GENERATED_RECOMP_LINKED=1
+    )
 endif()
 
 include("${CMAKE_CURRENT_SOURCE_DIR}/recomp_sse_compat_test.cmake")
