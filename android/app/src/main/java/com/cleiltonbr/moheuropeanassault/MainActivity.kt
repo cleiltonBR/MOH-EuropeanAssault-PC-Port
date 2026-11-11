@@ -172,56 +172,78 @@ class MainActivity : Activity(), SurfaceHolder.Callback {
             append("\nRuntime log:\n")
             if (logFile.exists()) {
                 try {
-                    // Keep the Intent payload small: Android's Binder transaction
-                    // limit can reject a chooser carrying a very large accumulated log.
-                    val maxLogBytes = 48 * 1024L
-                    val length = logFile.length()
-                    val start = (length - maxLogBytes).coerceAtLeast(0L)
+                    // Scan the complete log in two streaming passes: the fatal signal
+                    // is written after the pre-entry memory snapshot, so a tail-only
+                    // read can miss the mappings needed to resolve the crash addresses.
+                    val addressPattern = Regex("(?:fault_addr|pc|sp|lr)=0x([0-9a-fA-F]+)")
+                    val mapPattern = Regex("^([0-9a-fA-F]+)-([0-9a-fA-F]+)\\s")
+                    val crashAddresses = mutableSetOf<ULong>()
                     java.io.RandomAccessFile(logFile, "r").use { input ->
-                        input.seek(start)
-                        val bytes = ByteArray((length - start).toInt())
-                        input.readFully(bytes)
-                        val logText = String(bytes, Charsets.UTF_8)
-                        val lines = logText.lineSequence().toList()
-                        val addressPattern = Regex("(?:fault_addr|pc|sp|lr)=0x([0-9a-fA-F]+)")
-                        val mapPattern = Regex("^([0-9a-fA-F]+)-([0-9a-fA-F]+)\\s")
-                        val crashAddresses = lines.asSequence()
-                            .filter { it.contains("FATAL NATIVE SIGNAL:") }
-                            .flatMap { line -> addressPattern.findAll(line).mapNotNull { it.groupValues[1].toULongOrNull(16) } }
-                            .toSet()
-                        val selectedMaps = mutableSetOf<String>()
-                        var inCrashSnapshot = false
-                        for (line in lines) {
+                        while (true) {
+                            val line = input.readLine() ?: break
+                            if (line.contains("FATAL NATIVE SIGNAL:")) {
+                                addressPattern.findAll(line).forEach { match ->
+                                    match.groupValues[1].toULongOrNull(16)?.let(crashAddresses::add)
+                                }
+                            }
+                        }
+                    }
+
+                    val selectedMaps = sortedSetOf<String>()
+                    var inCrashSnapshot = false
+                    java.io.RandomAccessFile(logFile, "r").use { input ->
+                        while (true) {
+                            val line = input.readLine() ?: break
                             when (line.trim()) {
                                 "CRASH MAP SNAPSHOT BEGIN" -> inCrashSnapshot = true
                                 "CRASH MAP SNAPSHOT END" -> inCrashSnapshot = false
                                 else -> if (inCrashSnapshot) {
-                                    val match = mapPattern.find(line.trimStart())
+                                    val trimmed = line.trimStart()
+                                    val match = mapPattern.find(trimmed)
                                     if (match != null) {
                                         val mapStart = match.groupValues[1].toULongOrNull(16)
                                         val mapEnd = match.groupValues[2].toULongOrNull(16)
                                         if (mapStart != null && mapEnd != null &&
                                             crashAddresses.any { it >= mapStart && it < mapEnd }) {
-                                            selectedMaps.add(line)
+                                            selectedMaps.add(trimmed)
                                         }
                                     }
                                 }
                             }
                         }
-                        val usefulLines = lines.filter { line ->
+                    }
+
+                    // Keep the ordinary diagnostic tail bounded for Android Binder,
+                    // then append matching mappings even when they precede that tail.
+                    val maxLogBytes = 48 * 1024L
+                    val length = logFile.length()
+                    val startOffset = (length - maxLogBytes).coerceAtLeast(0L)
+                    val tail = java.io.RandomAccessFile(logFile, "r").use { input ->
+                        input.seek(startOffset)
+                        val bytes = ByteArray((length - startOffset).toInt())
+                        input.readFully(bytes)
+                        String(bytes, Charsets.UTF_8)
+                    }
+                    if (startOffset > 0) append("[Earlier log content omitted; showing last 48 KiB.]\\n")
+                    tail.lineSequence()
+                        .filter { line ->
                             val trimmed = line.trim()
-                            !trimmed.startsWith("Diagnostics: begin /proc/self/maps") &&
-                                !trimmed.startsWith("Diagnostics: end /proc/self/maps") &&
-                                (!mapPattern.containsMatchIn(trimmed) || selectedMaps.contains(line) ||
-                                    trimmed == "CRASH MAP SNAPSHOT BEGIN" || trimmed == "CRASH MAP SNAPSHOT END")
-                        }.joinToString("\n")
-                        if (start > 0) append("[Earlier log content omitted; showing last 48 KiB.]\n")
-                        append(usefulLines.takeLast(48 * 1024))
+                            !mapPattern.containsMatchIn(trimmed) &&
+                                trimmed != "CRASH MAP SNAPSHOT BEGIN" &&
+                                trimmed != "CRASH MAP SNAPSHOT END"
+                        }
+                        .forEach { append(it).append('\\n') }
+
+                    append("\\nRelevant crash memory mappings (scanned from the complete log):\\n")
+                    if (selectedMaps.isEmpty()) {
+                        append("No mapping contained fault_addr, PC, SP or LR.\\n")
+                    } else {
+                        selectedMaps.forEach { append(it).append('\\n') }
                     }
                 } catch (e: Exception) {
                     append("Could not read runtime log: ").append(e.message)
                 }
-            } else append("No runtime log found.")
+            }
             if (marker.exists()) {
                 try { append("\n\nCrash marker:\n").append(marker.readText().take(1024)) }
                 catch (e: Exception) { append("\nCrash marker could not be read: ").append(e.message) }
