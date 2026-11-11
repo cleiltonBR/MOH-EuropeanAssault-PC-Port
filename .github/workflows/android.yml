@@ -77,7 +77,12 @@ jobs:
         with:
           gradle-version: '8.9'
 
-      - name: Build ARM64 APK and compile generated game archive
+      # Separate native CMake/NDK compilation from Gradle packaging. This
+      # identifies which stage fails without collecting or exposing build logs.
+      - name: Compile native ARM64 runtime and generated game archive
+        run: gradle --no-daemon -p android :app:externalNativeBuildDebug
+
+      - name: Package ARM64 debug APK
         run: gradle --no-daemon -p android :app:assembleDebug
 
       - name: Inspect generated-code link dependencies (metadata only)
