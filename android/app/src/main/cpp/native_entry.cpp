@@ -33,10 +33,7 @@ std::atomic<int> g_error{0};
 std::atomic<unsigned long long> g_frames{0};
 std::atomic<unsigned long long> g_game_frames{0};
 std::mutex g_game_dir_mutex;
-std::mutex g_runtime_command_mutex;
-std::condition_variable g_runtime_command_cv;
-std::thread g_runtime_thread;
-bool g_runtime_stop_requested = false;
+std::atomic<bool> g_runtime_init_requested{false};
 std::string g_game_dir;
 uint32_t g_xbe_entry = 0;
 uint32_t g_xbe_kernel_thunk = 0;
@@ -174,45 +171,6 @@ void initializeXboxRuntimeLocked() {
 #endif
 }
 
-void runtimeThreadMain() {
-    {
-        std::lock_guard<std::mutex> lock(g_game_dir_mutex);
-        initializeXboxRuntimeLocked();
-    }
-
-    /* Keep the kernel's guest-thread identity alive. The eventual XBE entry
-     * point must run on this same thread because xbox_kernel_bridge_init()
-     * marks the calling thread as the guest thread. */
-    {
-        std::unique_lock<std::mutex> lock(g_runtime_command_mutex);
-        g_runtime_command_cv.wait(lock, [] { return g_runtime_stop_requested; });
-    }
-
-    {
-        std::lock_guard<std::mutex> lock(g_game_dir_mutex);
-        shutdownXboxRuntimeLocked();
-        g_runtime_status = "runtime shut down";
-    }
-}
-
-void stopRuntimeThread() {
-    if (!g_runtime_thread.joinable()) {
-        std::lock_guard<std::mutex> lock(g_game_dir_mutex);
-        shutdownXboxRuntimeLocked();
-        return;
-    }
-
-    {
-        std::lock_guard<std::mutex> lock(g_runtime_command_mutex);
-        g_runtime_stop_requested = true;
-    }
-    g_runtime_command_cv.notify_all();
-    g_runtime_thread.join();
-    {
-        std::lock_guard<std::mutex> lock(g_runtime_command_mutex);
-        g_runtime_stop_requested = false;
-    }
-}
 
 bool hasGameXbe() {
     if (g_game_dir.empty()) return false;
@@ -251,6 +209,13 @@ void renderLoop(ANativeWindow* window) {
     eglQuerySurface(display, surface, EGL_WIDTH, &width);
     eglQuerySurface(display, surface, EGL_HEIGHT, &height);
     d3d8_android_set_egl_surface(display, surface, width, height);
+
+    /* Guest kernel identity and the GLES context now share this render thread.
+     * This is the only safe thread on which to enter the translated game. */
+    {
+        std::lock_guard<std::mutex> lock(g_game_dir_mutex);
+        initializeXboxRuntimeLocked();
+    }
     g_stage.store(4);
     g_stage.store(5);
     IDirect3D8* d3d = xbox_Direct3DCreate8(0);
@@ -266,6 +231,11 @@ void renderLoop(ANativeWindow* window) {
     if (createResult == 0 && device) {
         g_stage.store(6);
         while (g_running.load()) {
+            if (g_runtime_init_requested.exchange(false)) {
+                std::lock_guard<std::mutex> lock(g_game_dir_mutex);
+                shutdownXboxRuntimeLocked();
+                initializeXboxRuntimeLocked();
+            }
             HRESULT clearResult = device->lpVtbl->Clear(
                 device, 0, nullptr, D3DCLEAR_TARGET, 0xFF17365Du, 1.0f, 0);
             if (clearResult != 0) { g_error.store(clearResult); g_stage.store(-7); break; }
@@ -276,6 +246,13 @@ void renderLoop(ANativeWindow* window) {
             std::this_thread::sleep_for(std::chrono::milliseconds(16));
         }
     } else { g_error.store(createResult); g_stage.store(-6); }
+    /* Tear down guest kernel/memory on the same thread that initialized them,
+     * before releasing the EGL context used by the Android D3D8 backend. */
+    {
+        std::lock_guard<std::mutex> lock(g_game_dir_mutex);
+        shutdownXboxRuntimeLocked();
+        g_runtime_status = "runtime shut down with EGL context";
+    }
     d3d8_android_set_egl_surface(EGL_NO_DISPLAY, EGL_NO_SURFACE, 0, 0);
     eglMakeCurrent(display, EGL_NO_SURFACE, EGL_NO_SURFACE, EGL_NO_CONTEXT);
     eglDestroySurface(display, surface);
@@ -299,7 +276,6 @@ extern "C" JNIEXPORT void JNICALL
 Java_com_cleiltonbr_moheuropeanassault_MainActivity_nativeSetGameDirectory(
     JNIEnv* env, jobject, jstring path) {
     const char* chars = path ? env->GetStringUTFChars(path, nullptr) : nullptr;
-    stopRuntimeThread();
     bool startRuntime = false;
     {
         std::lock_guard<std::mutex> lock(g_game_dir_mutex);
@@ -312,8 +288,7 @@ Java_com_cleiltonbr_moheuropeanassault_MainActivity_nativeSetGameDirectory(
         }
     }
     if (chars) env->ReleaseStringUTFChars(path, chars);
-    if (startRuntime)
-        g_runtime_thread = std::thread(runtimeThreadMain);
+    g_runtime_init_requested.store(true);
 }
 
 extern "C" JNIEXPORT jstring JNICALL
@@ -342,8 +317,9 @@ Java_com_cleiltonbr_moheuropeanassault_MainActivity_nativeStart(
 
 extern "C" JNIEXPORT void JNICALL
 Java_com_cleiltonbr_moheuropeanassault_MainActivity_nativeShutdown(JNIEnv*, jobject) {
-    stopRuntimeThread();
+    g_running.store(false);
     std::lock_guard<std::mutex> lock(g_game_dir_mutex);
+    shutdownXboxRuntimeLocked();
     g_runtime_status = "runtime shut down";
 }
 
