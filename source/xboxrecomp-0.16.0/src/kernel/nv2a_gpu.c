@@ -3208,6 +3208,15 @@ int nv2a_gpu_present(uint32_t va, uint32_t logical_w, uint32_t logical_h,
 
 #else   /* !_WIN32: no D3D11, the software rasteriser draws everything */
 
+/* No POSIX/Android GPU-surface cache exists. Returning false deliberately
+ * selects the guest-memory texture path in the pushbuffer executor. */
+int nv2a_gpu_surface_texture(uint32_t va, uint32_t bpp, uint32_t w, uint32_t h,
+                             uint32_t pitch, int swizzled)
+{
+    (void)va; (void)bpp; (void)w; (void)h; (void)pitch; (void)swizzled;
+    return 0;
+}
+
 int  nv2a_gpu_enabled(void) { return 0; }
 void nv2a_gpu_draw(const Nv2aGpuState *st, const Nv2aGpuVertex *v, uint32_t n)
 { (void)st; (void)v; (void)n; }
