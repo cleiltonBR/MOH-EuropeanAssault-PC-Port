@@ -113,6 +113,17 @@ void fatalSignalHandler(int signalNumber, siginfo_t* info, void* rawContext) {
     if (g_crash_logged) _exit(128 + signalNumber);
     g_crash_logged = 1;
 
+    /* Persist the crash marker before attempting the optional /proc snapshot.
+     * If snapshot collection stalls or fails, the app still reports the crash. */
+    if (g_crash_marker_path[0]) {
+        int marker = open(g_crash_marker_path, O_WRONLY | O_CREAT | O_TRUNC | O_CLOEXEC, 0600);
+        if (marker >= 0) {
+            static const char crashed[] = "native-crash\\n";
+            (void)write(marker, crashed, sizeof(crashed) - 1);
+            close(marker);
+        }
+    }
+
     if (g_log_path[0]) {
         int fd = open(g_log_path, O_WRONLY | O_CREAT | O_APPEND | O_CLOEXEC, 0600);
         if (fd >= 0) {
@@ -173,14 +184,6 @@ void fatalSignalHandler(int signalNumber, siginfo_t* info, void* rawContext) {
                 close(mapsFd);
             }
             close(fd);
-        }
-    }
-    if (g_crash_marker_path[0]) {
-        int marker = open(g_crash_marker_path, O_WRONLY | O_CREAT | O_TRUNC | O_CLOEXEC, 0600);
-        if (marker >= 0) {
-            static const char crashed[] = "native-crash\\n";
-            (void)write(marker, crashed, sizeof(crashed) - 1);
-            close(marker);
         }
     }
     _exit(128 + signalNumber);
