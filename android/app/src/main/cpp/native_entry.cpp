@@ -74,6 +74,40 @@ void writeHexValue(int fd, uintptr_t value) {
     }
 }
 
+void appendProcessMaps() {
+    std::ifstream maps("/proc/self/maps");
+    if (!maps) { appendRuntimeLog("Diagnostics: could not read /proc/self/maps"); return; }
+    appendRuntimeLog("Diagnostics: begin /proc/self/maps");
+    std::string line;
+    while (std::getline(maps, line)) appendRuntimeLog(line.c_str());
+    appendRuntimeLog("Diagnostics: end /proc/self/maps");
+}
+
+void appendGuestLayoutDiagnostics(void (*entry)(void)) {
+    char message[512];
+    const uintptr_t hostEntry = reinterpret_cast<uintptr_t>(entry);
+    Dl_info info{};
+    if (dladdr(reinterpret_cast<void*>(hostEntry), &info) && info.dli_fname) {
+        snprintf(message, sizeof(message),
+            "Diagnostics: dispatcher host_entry=%p module=%s module_base=%p symbol=%s symbol_addr=%p",
+            reinterpret_cast<void*>(hostEntry), info.dli_fname, info.dli_fbase,
+            info.dli_sname ? info.dli_sname : "(unknown)", info.dli_saddr);
+    } else {
+        snprintf(message, sizeof(message),
+            "Diagnostics: dispatcher host_entry=%p module=(dladdr unavailable)",
+            reinterpret_cast<void*>(hostEntry));
+    }
+    appendRuntimeLog(message);
+    snprintf(message, sizeof(message),
+        "Diagnostics: guest image=0x%08X..0x%08X code=0x%08X..0x%08X region=0x%08X stack=0x%08X..0x%08X size=%u ESP=0x%08X mem_offset=%lld mapped=%zu",
+        g_xbox_image_lo, g_xbox_image_hi, g_xbox_code_lo, g_xbox_code_hi,
+        g_xbox_region_base, g_xbox_stack_base,
+        g_xbox_stack_base + g_xbox_stack_size, g_xbox_stack_size, g_esp,
+        static_cast<long long>(xbox_GetMemoryOffset()), xbox_GetMappedSize());
+    appendRuntimeLog(message);
+    appendProcessMaps();
+}
+
 void appendRuntimeLog(const char* message) {
     if (!g_log_path[0] || !message) return;
     int fd = open(g_log_path, O_WRONLY | O_CREAT | O_APPEND | O_CLOEXEC, 0600);
@@ -329,6 +363,7 @@ void initializeXboxRuntimeLocked() {
     g_runtime_stage.store(5);
     g_runtime_status = "starting recompiled XBE entry point";
     appendRuntimeLog("Runtime: calling generated XBE entry point");
+    appendGuestLayoutDiagnostics(entry);
     logGuestAddressDiagnostics(entry);
     fflush(stdout);
     entry();
