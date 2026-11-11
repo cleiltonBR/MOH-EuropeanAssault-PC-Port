@@ -182,13 +182,40 @@ class MainActivity : Activity(), SurfaceHolder.Callback {
                         val bytes = ByteArray((length - start).toInt())
                         input.readFully(bytes)
                         val logText = String(bytes, Charsets.UTF_8)
-                        val usefulLines = logText.lineSequence().filterNot { line ->
-                            val trimmed = line.trimStart()
-                            trimmed.startsWith("Diagnostics: begin /proc/self/maps") ||
-                                trimmed.startsWith("Diagnostics: end /proc/self/maps") ||
-                                Regex("^[0-9a-fA-F]+-[0-9a-fA-F]+\\s").containsMatchIn(trimmed)
-                        }.joinToString("\\n")
-                        if (start > 0) append("[Earlier log content omitted; showing last 48 KiB.]\\n")
+                        val lines = logText.lineSequence().toList()
+                        val addressPattern = Regex("(?:fault_addr|pc|sp|lr)=0x([0-9a-fA-F]+)")
+                        val mapPattern = Regex("^([0-9a-fA-F]+)-([0-9a-fA-F]+)\\s")
+                        val crashAddresses = lines.asSequence()
+                            .filter { it.contains("FATAL NATIVE SIGNAL:") }
+                            .flatMap { line -> addressPattern.findAll(line).mapNotNull { it.groupValues[1].toULongOrNull(16) } }
+                            .toSet()
+                        val selectedMaps = mutableSetOf<String>()
+                        var inCrashSnapshot = false
+                        for (line in lines) {
+                            when (line.trim()) {
+                                "CRASH MAP SNAPSHOT BEGIN" -> inCrashSnapshot = true
+                                "CRASH MAP SNAPSHOT END" -> inCrashSnapshot = false
+                                else -> if (inCrashSnapshot) {
+                                    val match = mapPattern.find(line.trimStart())
+                                    if (match != null) {
+                                        val mapStart = match.groupValues[1].toULongOrNull(16)
+                                        val mapEnd = match.groupValues[2].toULongOrNull(16)
+                                        if (mapStart != null && mapEnd != null &&
+                                            crashAddresses.any { it >= mapStart && it < mapEnd }) {
+                                            selectedMaps.add(line)
+                                        }
+                                    }
+                                }
+                            }
+                        }
+                        val usefulLines = lines.filter { line ->
+                            val trimmed = line.trim()
+                            !trimmed.startsWith("Diagnostics: begin /proc/self/maps") &&
+                                !trimmed.startsWith("Diagnostics: end /proc/self/maps") &&
+                                (!mapPattern.containsMatchIn(trimmed) || selectedMaps.contains(line) ||
+                                    trimmed == "CRASH MAP SNAPSHOT BEGIN" || trimmed == "CRASH MAP SNAPSHOT END")
+                        }.joinToString("\n")
+                        if (start > 0) append("[Earlier log content omitted; showing last 48 KiB.]\n")
                         append(usefulLines.takeLast(48 * 1024))
                     }
                 } catch (e: Exception) {
