@@ -439,6 +439,13 @@ jobs:
       - name: Run SSE compatibility behavior tests
         run: /tmp/recomp_sse_compat_test
 
+      - name: Test POSIX fixed-address and partial guest-window mappings
+        run: |
+          cmake -S source/xboxrecomp-0.16.0/tests/win32_compat_posix \
+            -B "$RUNNER_TEMP/win32-compat-posix"
+          cmake --build "$RUNNER_TEMP/win32-compat-posix" --parallel 2
+          ctest --test-dir "$RUNNER_TEMP/win32-compat-posix" --output-on-failure
+
   test-aaudio-android-arm64:
     runs-on: ubuntu-latest
     steps:
