@@ -168,10 +168,13 @@ class MainActivity : Activity(), SurfaceHolder.Callback {
             append("Medal of Honor: European Assault - Android diagnostic report\n")
             append("App version: 0.2.0-android-game-code-linked\n")
             append("Crash marker present: ").append(marker.exists()).append("\n\n")
-            append("Current runtime status:\n")
-            try { append(nativeStatus()) } catch (e: Exception) { append("nativeStatus failed: ").append(e.message) }
-            append("\n\nRuntime log:\n")
-            if (logFile.exists()) append(logFile.readText()) else append("No runtime log found.")
+            append("Runtime status: captured from local files; native runtime intentionally not queried.\n")
+            append("\nRuntime log:\n")
+            if (logFile.exists()) {
+                try { append(logFile.readText()) } catch (e: Exception) {
+                    append("Could not read runtime log: ").append(e.message)
+                }
+            } else append("No runtime log found.")
             if (marker.exists()) append("\n\nCrash marker:\n").append(marker.readText())
         }
         val send = Intent(Intent.ACTION_SEND).apply {
@@ -179,7 +182,12 @@ class MainActivity : Activity(), SurfaceHolder.Callback {
             putExtra(Intent.EXTRA_SUBJECT, "Medal of Honor Android - crash diagnostics")
             putExtra(Intent.EXTRA_TEXT, report)
         }
-        startActivity(Intent.createChooser(send, "Compartilhar diagnóstico"))
+        try {
+            startActivity(Intent.createChooser(send, "Compartilhar diagnóstico"))
+        } catch (e: Throwable) {
+            appendLocalLog("Diagnostics share failed: " + android.util.Log.getStackTraceString(e))
+            Toast.makeText(this, "Não foi possível abrir o compartilhamento: ${e.message}", Toast.LENGTH_LONG).show()
+        }
     }
 
     override fun surfaceCreated(holder: SurfaceHolder) { nativeStart(holder.surface) }
