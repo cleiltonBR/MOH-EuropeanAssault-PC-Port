@@ -19,6 +19,9 @@
 #include <fstream>
 #include <vector>
 
+extern "C" void (*recomp_lookup(uint32_t xbox_va))(void);
+extern "C" int moh_android_is_foreground(void);
+
 extern "C" void d3d8_android_set_egl_surface(
     EGLDisplay display, EGLSurface surface, int width, int height);
 
@@ -159,7 +162,16 @@ void initializeXboxRuntimeLocked() {
 
     xbox_kernel_bridge_init();
     g_runtime_stage.store(4);
-    g_runtime_status = "Xbox guest memory and kernel thunk bridge ready; game entry point not started";
+#if defined(MOH_GENERATED_RECOMP_LINKED)
+    if (!recomp_lookup(g_xbe_entry)) {
+        g_runtime_stage.store(-3);
+        g_runtime_status = "kernel ready, but generated dispatcher has no function for the XBE entry VA";
+        return;
+    }
+    g_runtime_status = "Xbox memory, kernel bridge and generated dispatcher ready; XBE entry resolved but not started";
+#else
+    g_runtime_status = "Xbox guest memory and kernel thunk bridge ready; generated dispatcher not linked";
+#endif
 }
 
 void runtimeThreadMain() {
@@ -277,6 +289,10 @@ void renderLoop(ANativeWindow* window) {
 /* Called by the translated game's frame-limiter hook once the real game loop is active. */
 extern "C" void moh_android_note_frame(void) {
     g_game_frames.fetch_add(1, std::memory_order_relaxed);
+}
+
+extern "C" int moh_android_is_foreground(void) {
+    return g_running.load(std::memory_order_relaxed) ? 1 : 0;
 }
 
 extern "C" JNIEXPORT void JNICALL
