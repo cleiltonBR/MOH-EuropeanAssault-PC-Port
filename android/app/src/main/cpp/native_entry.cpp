@@ -150,6 +150,28 @@ void fatalSignalHandler(int signalNumber, siginfo_t* info, void* rawContext) {
             }
 #endif
             (void)write(fd, "\n", 1);
+
+            /* Signal-safe crash map snapshot: raw open/read/write only. This
+             * lets us resolve PC/LR/fault_addr to the exact mapped ELF after
+             * the crash, without calling dladdr or stdio in the handler. */
+            const int mapsFd = open("/proc/self/maps", O_RDONLY | O_CLOEXEC);
+            if (mapsFd >= 0) {
+                static const char mapsHeader[] = "CRASH MAP SNAPSHOT BEGIN\n";
+                (void)write(fd, mapsHeader, sizeof(mapsHeader) - 1);
+                char mapsBuffer[4096];
+                size_t total = 0;
+                ssize_t bytes = 0;
+                while (total < 32768 &&
+                       (bytes = read(mapsFd, mapsBuffer,
+                           sizeof(mapsBuffer) < (32768 - total)
+                               ? sizeof(mapsBuffer) : (32768 - total))) > 0) {
+                    (void)write(fd, mapsBuffer, static_cast<size_t>(bytes));
+                    total += static_cast<size_t>(bytes);
+                }
+                static const char mapsFooter[] = "\nCRASH MAP SNAPSHOT END\n";
+                (void)write(fd, mapsFooter, sizeof(mapsFooter) - 1);
+                close(mapsFd);
+            }
             close(fd);
         }
     }
