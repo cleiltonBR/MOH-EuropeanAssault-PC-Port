@@ -43,6 +43,12 @@ class MainActivity : Activity(), SurfaceHolder.Callback {
         super.onCreate(savedInstanceState)
         System.loadLibrary("moh_android")
         nativeConfigureLogging(filesDir.absolutePath)
+        Thread.setDefaultUncaughtExceptionHandler { thread, error ->
+            appendLocalLog("FATAL JAVA EXCEPTION on " + thread.name + ": " + android.util.Log.getStackTraceString(error))
+            val marker = File(filesDir, "moh-crash.marker")
+            try { marker.writeText("java-crash\\n") } catch (_: Exception) { }
+            android.os.Process.killProcess(android.os.Process.myPid())
+        }
         appendLocalLog("App: onCreate")
         nativeSetGameDirectory(File(filesDir, "game").absolutePath)
 
@@ -150,7 +156,7 @@ class MainActivity : Activity(), SurfaceHolder.Callback {
         try {
             File(filesDir, "moh-runtime.log").appendText(
                 java.text.SimpleDateFormat("yyyy-MM-dd HH:mm:ss.SSS", java.util.Locale.US).format(java.util.Date()) +
-                    " " + message + "\\n"
+                    " " + message + "\n"
             )
         } catch (_: Exception) { }
     }
@@ -159,14 +165,14 @@ class MainActivity : Activity(), SurfaceHolder.Callback {
         val logFile = File(filesDir, "moh-runtime.log")
         val marker = File(filesDir, "moh-crash.marker")
         val report = buildString {
-            append("Medal of Honor: European Assault - Android diagnostic report\\n")
-            append("App version: 0.2.0-android-game-code-linked\\n")
-            append("Crash marker present: ").append(marker.exists()).append("\\n\\n")
-            append("Current runtime status:\\n")
+            append("Medal of Honor: European Assault - Android diagnostic report\n")
+            append("App version: 0.2.0-android-game-code-linked\n")
+            append("Crash marker present: ").append(marker.exists()).append("\n\n")
+            append("Current runtime status:\n")
             try { append(nativeStatus()) } catch (e: Exception) { append("nativeStatus failed: ").append(e.message) }
-            append("\\n\\nRuntime log:\\n")
+            append("\n\nRuntime log:\n")
             if (logFile.exists()) append(logFile.readText()) else append("No runtime log found.")
-            if (marker.exists()) append("\\n\\nCrash marker:\\n").append(marker.readText())
+            if (marker.exists()) append("\n\nCrash marker:\n").append(marker.readText())
         }
         val send = Intent(Intent.ACTION_SEND).apply {
             type = "text/plain"
