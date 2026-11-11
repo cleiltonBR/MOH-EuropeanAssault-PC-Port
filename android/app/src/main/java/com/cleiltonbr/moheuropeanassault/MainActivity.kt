@@ -42,7 +42,14 @@ class MainActivity : Activity(), SurfaceHolder.Callback {
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
         System.loadLibrary("moh_android")
+        // A new app process starts a fresh diagnostic session. Remove stale
+        // crash state and logs so exported reports describe only this run.
+        try {
+            File(filesDir, "moh-crash.marker").delete()
+            File(filesDir, "moh-runtime.log").delete()
+        } catch (_: Exception) { }
         nativeConfigureLogging(filesDir.absolutePath)
+        appendLocalLog("Diagnostics: new app session; previous marker and log cleared")
         Thread.setDefaultUncaughtExceptionHandler { thread, error ->
             appendLocalLog("FATAL JAVA EXCEPTION on " + thread.name + ": " + android.util.Log.getStackTraceString(error))
             val marker = File(filesDir, "moh-crash.marker")
