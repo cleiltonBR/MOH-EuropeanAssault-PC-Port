@@ -321,15 +321,21 @@ void inspectXbeLocked() {
 }
 
 void shutdownXboxRuntimeLocked() {
+    appendRuntimeLog("Runtime: shutdown requested");
     if (g_kernel_started) {
+        appendRuntimeLog("Runtime: shutting down Xbox kernel");
         xbox_kernel_shutdown();
         g_kernel_started = false;
     }
     if (g_memory_started) {
+        appendRuntimeLog("Runtime: shutting down Xbox guest memory");
         xbox_MemoryLayoutShutdown();
         g_memory_started = false;
     }
-    g_runtime_stage.store(0);
+    char line[256];
+    snprintf(line, sizeof(line), "Runtime: shutdown complete; retained runtime_stage=%d status=%s",
+        g_runtime_stage.load(), g_runtime_status.c_str());
+    appendRuntimeLog(line);
 }
 
 void logGuestAddressDiagnostics(void (*entry)(void)) {
@@ -375,6 +381,13 @@ void initializeXboxRuntimeLocked() {
 
     if (g_memory_started || g_xbe_image.empty() || !g_xbe_entry ||
         !g_xbe_kernel_thunk) {
+        char line[256];
+        snprintf(line, sizeof(line),
+            "Runtime: initialization rejected; memory_started=%d xbe_bytes=%zu entry=0x%08X thunk=0x%08X",
+            g_memory_started ? 1 : 0, g_xbe_image.size(), g_xbe_entry, g_xbe_kernel_thunk);
+        appendRuntimeLog(line);
+        g_runtime_stage.store(-10);
+        g_runtime_status = "initialization prerequisites missing; see runtime log";
         return;
     }
 
@@ -386,10 +399,14 @@ void initializeXboxRuntimeLocked() {
      * The POSIX memory-layout backend enables that reservation through this
      * switch; do it before mapping XBE sections or kernel apertures. */
     if (setenv("RECOMP_EXT_VMA", "1", 1) != 0) {
+        char line[160];
+        snprintf(line, sizeof(line), "Runtime: setenv(RECOMP_EXT_VMA) failed errno=%d", errno);
+        appendRuntimeLog(line);
         g_runtime_stage.store(-1);
         g_runtime_status = "could not enable the Android 4 GiB guest address window";
         return;
     }
+    appendRuntimeLog("Runtime: RECOMP_EXT_VMA=1 configured");
     g_runtime_status = "mapping Xbox guest memory and loading XBE sections";
     if (!xbox_MemoryLayoutInit(g_xbe_image.data(), g_xbe_image.size())) {
         xbox_MemoryLayoutShutdown();
@@ -397,11 +414,23 @@ void initializeXboxRuntimeLocked() {
         const char* memoryError = xbox_MemoryLayoutLastError();
         g_runtime_status = (memoryError && memoryError[0])
             ? memoryError : "Xbox guest memory initialization failed (no host diagnostic)";
+        appendRuntimeLog("Runtime: guest memory initialization FAILED");
+        appendRuntimeLog(g_runtime_status.c_str());
         return;
     }
     g_memory_started = true;
     appendRuntimeLog("Runtime: Xbox guest memory initialized");
     g_runtime_stage.store(2);
+    appendRuntimeLog("Diagnostics: guest memory stage reached; capturing current process mappings");
+    appendRuntimeLog("PRE-ENTRY MAP SNAPSHOT BEGIN");
+    {
+        std::ifstream maps("/proc/self/maps");
+        std::string mapLine;
+        while (std::getline(maps, mapLine)) appendRuntimeLog(mapLine.c_str());
+        if (!maps.eof() && maps.fail())
+            appendRuntimeLog("Diagnostics: /proc/self/maps read ended with an I/O error");
+    }
+    appendRuntimeLog("PRE-ENTRY MAP SNAPSHOT END");
 
     const std::string save_dir = g_game_dir + "/../saves";
     xbox_path_init(g_game_dir.c_str(), save_dir.c_str());
@@ -412,9 +441,17 @@ void initializeXboxRuntimeLocked() {
     g_runtime_stage.store(3);
 
     xbox_kernel_get_thunk_address(&thunk_va, &thunk_count);
+    {
+        char line[192];
+        snprintf(line, sizeof(line),
+            "Runtime: thunk query base=%p thunk_va=0x%08X thunk_count=%u",
+            xbox_GetMemoryBase(), thunk_va, thunk_count);
+        appendRuntimeLog(line);
+    }
     if (!xbox_GetMemoryBase() || !thunk_va || !thunk_count) {
         g_runtime_status = "guest memory loaded, but XBE kernel thunk table is unavailable";
         g_runtime_stage.store(-2);
+        appendRuntimeLog("Runtime: kernel thunk table validation FAILED");
         xbox_kernel_shutdown();
         g_kernel_started = false;
         xbox_MemoryLayoutShutdown();
@@ -430,17 +467,25 @@ void initializeXboxRuntimeLocked() {
     if (!recomp_lookup(g_xbe_entry)) {
         g_runtime_stage.store(-3);
         g_runtime_status = "kernel ready, but generated dispatcher has no function for the XBE entry VA";
+        appendRuntimeLog("Runtime: generated dispatcher lookup FAILED");
         return;
     }
+    appendRuntimeLog("Runtime: generated dispatcher lookup succeeded");
     /* Match the desktop bootstrap: the generated entry is a void(void)
      * function and consumes the emulated x86 register file/stack. The lookup
      * above only proved that code exists; invoke it now on this same thread,
      * where the EGL context, guest memory and TLS register state are valid. */
     if (g_esp != XBOX_STACK_TOP) {
+        char line[160];
+        snprintf(line, sizeof(line),
+            "Runtime: guest ESP validation FAILED actual=0x%08X expected=0x%08X",
+            g_esp, XBOX_STACK_TOP);
+        appendRuntimeLog(line);
         g_runtime_stage.store(-4);
         g_runtime_status = "dispatcher ready, but guest ESP was not initialized";
         return;
     }
+    appendRuntimeLog("Runtime: guest ESP validation succeeded");
     void (*entry)(void) = recomp_lookup(g_xbe_entry);
     if (!entry) {
         g_runtime_stage.store(-3);
@@ -523,10 +568,18 @@ void renderLoop(ANativeWindow* window) {
         g_stage.store(6);
         while (g_running.load()) {
             if (g_runtime_init_requested.exchange(false)) {
-                appendRuntimeLog("UI: explicit game start requested");
+                appendRuntimeLog("UI: render thread accepted game start request");
                 std::lock_guard<std::mutex> lock(g_game_dir_mutex);
+                appendRuntimeLog("UI: game start request acquired game directory mutex");
                 shutdownXboxRuntimeLocked();
                 initializeXboxRuntimeLocked();
+                {
+                    char line[256];
+                    snprintf(line, sizeof(line),
+                        "UI: initialization attempt finished; runtime_stage=%d status=%s",
+                        g_runtime_stage.load(), g_runtime_status.c_str());
+                    appendRuntimeLog(line);
+                }
             }
             HRESULT clearResult = device->lpVtbl->Clear(
                 device, 0, nullptr, D3DCLEAR_TARGET, 0xFF17365Du, 1.0f, 0);
@@ -548,7 +601,10 @@ void renderLoop(ANativeWindow* window) {
     {
         std::lock_guard<std::mutex> lock(g_game_dir_mutex);
         shutdownXboxRuntimeLocked();
-        g_runtime_status = "runtime shut down with EGL context";
+        if (g_runtime_stage.load() >= 0) {
+            g_runtime_status = "renderer stopped; guest runtime is not active";
+        }
+        appendRuntimeLog("Renderer: EGL teardown complete");
     }
     d3d8_android_set_egl_surface(EGL_NO_DISPLAY, EGL_NO_SURFACE, 0, 0);
     eglMakeCurrent(display, EGL_NO_SURFACE, EGL_NO_SURFACE, EGL_NO_CONTEXT);
@@ -608,7 +664,11 @@ Java_com_cleiltonbr_moheuropeanassault_MainActivity_nativeConfigureLogging(
 extern "C" JNIEXPORT void JNICALL
 Java_com_cleiltonbr_moheuropeanassault_MainActivity_nativeRequestGameStart(JNIEnv*, jobject) {
     g_runtime_init_requested.store(true);
-    appendRuntimeLog("UI: game start requested");
+    char line[192];
+    snprintf(line, sizeof(line),
+        "UI: game start requested; renderer_running=%d xbe_bytes=%zu entry=0x%08X thunk=0x%08X",
+        g_running.load() ? 1 : 0, g_xbe_image.size(), g_xbe_entry, g_xbe_kernel_thunk);
+    appendRuntimeLog(line);
 }
 
 extern "C" JNIEXPORT jstring JNICALL
