@@ -14,6 +14,7 @@ target_link_libraries(xbox_input PUBLIC xbox_input_map)
 
 if(ANDROID)
     # Android injects native key/touch states through xbox_InputKeySet().
+    target_link_libraries(xbox_input PUBLIC platform)
 elseif(WIN32)
     # Mouse+keyboard pad (RECOMP_MKB) reads Win32 raw input.
     target_sources(xbox_input PRIVATE mkb_input.c)
