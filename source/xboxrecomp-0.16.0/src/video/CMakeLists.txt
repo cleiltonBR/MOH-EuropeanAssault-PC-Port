@@ -17,6 +17,10 @@ if(WIN32)
     target_sources(xbox_video PRIVATE gpu_present.c screen_fx.c)
     target_link_libraries(xbox_video PUBLIC mfplat mfreadwrite mfuuid mf ole32
                           d3d11 dxgi dxguid d3dcompiler)
+elseif(ANDROID)
+    # The main Android EGL surface is owned by native_entry.cpp. Keep the
+    # guest framebuffer capture adapter on that render thread, without SDL.
+    target_sources(xbox_video PRIVATE fb_present_android.c)
 else()
     # The framebuffer window on POSIX hosts: SDL2, on the process main thread
     # (fb_present_sdl.c), which then also pumps the events the game
