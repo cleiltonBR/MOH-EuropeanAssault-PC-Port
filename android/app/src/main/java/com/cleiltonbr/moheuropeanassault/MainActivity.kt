@@ -232,37 +232,53 @@ class MainActivity : Activity(), SurfaceHolder.Callback {
                     // read can miss the mappings needed to resolve the crash addresses.
                     val addressPattern = Regex("(?:fault_addr|pc|sp|lr)=0x([0-9a-fA-F]+)")
                     val mapPattern = Regex("^([0-9a-fA-F]+)-([0-9a-fA-F]+)\\s")
+                    // The process that crashed is no longer alive when the user
+                    // relaunches the app. Its log is moved to previousLogFile in onCreate,
+                    // so scan both files; scanning only logFile loses the exact maps needed
+                    // to symbolize the previous session's PC and fault address.
+                    val diagnosticLogs = listOf(
+                        logFile to "current session",
+                        previousLogFile to "previous session"
+                    ).filter { it.first.isFile }
+
                     val crashAddresses = mutableSetOf<ULong>()
-                    java.io.RandomAccessFile(logFile, "r").use { input ->
-                        while (true) {
-                            val line = input.readLine() ?: break
-                            if (line.contains("FATAL NATIVE SIGNAL:")) {
-                                addressPattern.findAll(line).forEach { match ->
-                                    match.groupValues[1].toULongOrNull(16)?.let(crashAddresses::add)
+                    for ((sourceFile, _) in diagnosticLogs) {
+                        java.io.RandomAccessFile(sourceFile, "r").use { input ->
+                            while (true) {
+                                val line = input.readLine() ?: break
+                                if (line.contains("FATAL NATIVE SIGNAL:")) {
+                                    addressPattern.findAll(line).forEach { match ->
+                                        match.groupValues[1].toULongOrNull(16)?.let(crashAddresses::add)
+                                    }
                                 }
                             }
                         }
                     }
 
                     val selectedMaps = sortedSetOf<String>()
-                    val snapshotMaps = mutableListOf<String>()
-                    var inCrashSnapshot = false
-                    java.io.RandomAccessFile(logFile, "r").use { input ->
-                        while (true) {
-                            val line = input.readLine() ?: break
-                            when (line.trim()) {
-                                "CRASH MAP SNAPSHOT BEGIN" -> inCrashSnapshot = true
-                                "CRASH MAP SNAPSHOT END" -> inCrashSnapshot = false
-                                else -> if (inCrashSnapshot) {
-                                    val trimmed = line.trimStart()
-                                    val match = mapPattern.find(trimmed)
-                                    if (match != null) {
-                                        snapshotMaps.add(trimmed)
-                                        val mapStart = match.groupValues[1].toULongOrNull(16)
-                                        val mapEnd = match.groupValues[2].toULongOrNull(16)
-                                        if (mapStart != null && mapEnd != null &&
-                                            crashAddresses.any { it >= mapStart && it < mapEnd }) {
-                                            selectedMaps.add(trimmed)
+                    val snapshotMaps = linkedSetOf<String>()
+                    for ((sourceFile, sourceLabel) in diagnosticLogs) {
+                        var inMemorySnapshot = false
+                        java.io.RandomAccessFile(sourceFile, "r").use { input ->
+                            while (true) {
+                                val line = input.readLine() ?: break
+                                when (line.trim()) {
+                                    "CRASH MAP SNAPSHOT BEGIN",
+                                    "PRE-ENTRY MAP SNAPSHOT BEGIN" -> inMemorySnapshot = true
+                                    "CRASH MAP SNAPSHOT END",
+                                    "PRE-ENTRY MAP SNAPSHOT END" -> inMemorySnapshot = false
+                                    else -> if (inMemorySnapshot) {
+                                        val trimmed = line.trimStart()
+                                        val match = mapPattern.find(trimmed)
+                                        if (match != null) {
+                                            val display = "[$sourceLabel] $trimmed"
+                                            snapshotMaps.add(display)
+                                            val mapStart = match.groupValues[1].toULongOrNull(16)
+                                            val mapEnd = match.groupValues[2].toULongOrNull(16)
+                                            if (mapStart != null && mapEnd != null &&
+                                                crashAddresses.any { it >= mapStart && it < mapEnd }) {
+                                                selectedMaps.add(display)
+                                            }
                                         }
                                     }
                                 }
@@ -291,15 +307,15 @@ class MainActivity : Activity(), SurfaceHolder.Callback {
                         }
                         .forEach { append(it).append('\n') }
 
-                    append("\nRelevant crash memory mappings (scanned from the complete log):\n")
+                    append("\nRelevant crash memory mappings (current and previous session):\n")
                     if (selectedMaps.isEmpty()) {
                         append("No mapping contained fault_addr, PC, SP or LR.\n")
                     } else {
                         selectedMaps.forEach { append(it).append('\n') }
                     }
-                    append("\nComplete pre-entry memory map snapshot (first 24 KiB):\n")
+                    append("\nComplete crash/pre-entry memory map snapshots (first 24 KiB):\n")
                     if (snapshotMaps.isEmpty()) {
-                        append("No pre-entry memory map snapshot was recorded.\n")
+                        append("No crash or pre-entry memory map snapshot was recorded in either session.\n")
                     } else {
                         var snapshotBytes = 0
                         for (mapping in snapshotMaps) {
