@@ -1251,6 +1251,7 @@ static void *mach_map_fixed(void *address, size_t size, int prot)
  * munmap cannot be called at all. */
 void view_register(void *addr, size_t len);
 size_t view_take(const void *addr);
+static int view_release_range(const void *addr, size_t len);
 
 LPVOID VirtualAlloc(LPVOID address, SIZE_T size, DWORD allocationType, DWORD protect)
 {
@@ -1300,14 +1301,19 @@ LPVOID VirtualAlloc(LPVOID address, SIZE_T size, DWORD allocationType, DWORD pro
 BOOL VirtualFree(LPVOID address, SIZE_T size, DWORD freeType)
 {
     if (freeType & MEM_RELEASE) {
-        /* Win32 MEM_RELEASE passes size 0 and frees the whole allocation, so
-         * the length comes from the registry VirtualAlloc filled in. Returning
-         * TRUE without unmapping -- as this used to -- made every release a
-         * silent no-op: the caller believed the address was free, the next
-         * allocation there failed, and nothing connected the two. */
-        size_t len = view_take(address);
-        if (size == 0) size = len;
-        if (size == 0) return FALSE;
+        /* Win32's normal MEM_RELEASE form is size=0 at the allocation base.
+         * The Xbox layout also deliberately releases slices from a larger
+         * PROT_NONE reservation before replacing them with file-backed views.
+         * Keep the registry in sync when that happens: dropping the original
+         * entry on the first slice made every later interior release a no-op,
+         * so MAP_FIXED_NOREPLACE could not carve the mirrors/apertures out. */
+        if (size == 0) {
+            size = view_take(address);
+            if (size == 0) return FALSE;
+            return munmap(address, size) == 0;
+        }
+        if (!view_release_range(address, size))
+            return FALSE;
         return munmap(address, size) == 0;
     }
     if (freeType & MEM_DECOMMIT)
@@ -1737,6 +1743,54 @@ size_t view_take(const void *addr)
         if (s_views[i].addr == addr) { len = s_views[i].len; s_views[i].addr = NULL; break; }
     pthread_mutex_unlock(&s_views_lock);
     return len;
+}
+
+/* Release an arbitrary subrange of a registered reservation while preserving
+ * the still-owned prefix/suffix in the registry. This is needed by the Xbox
+ * guest-window allocator, which reserves one large span and progressively
+ * replaces slices with MAP_FIXED_NOREPLACE file views. */
+static int view_release_range(const void *addr, size_t len)
+{
+    uintptr_t lo = (uintptr_t)addr;
+    uintptr_t hi;
+    int covered = 0;
+    if (!addr || !len || lo + len < lo) return 0;
+    hi = lo + len;
+
+    pthread_mutex_lock(&s_views_lock);
+    for (int i = 0; i < 512; ++i) {
+        uintptr_t a, b, cut_lo, cut_hi;
+        if (!s_views[i].addr) continue;
+        a = (uintptr_t)s_views[i].addr;
+        b = a + s_views[i].len;
+        cut_lo = a > lo ? a : lo;
+        cut_hi = b < hi ? b : hi;
+        if (cut_lo >= cut_hi) continue;
+        covered = 1;
+
+        if (cut_lo == a && cut_hi == b) {
+            s_views[i].addr = NULL;
+            s_views[i].len = 0;
+        } else if (cut_lo == a) {
+            s_views[i].addr = (void *)cut_hi;
+            s_views[i].len = b - cut_hi;
+        } else if (cut_hi == b) {
+            s_views[i].len = cut_lo - a;
+        } else {
+            int slot;
+            for (slot = 0; slot < 512; ++slot)
+                if (!s_views[slot].addr) break;
+            if (slot == 512) {
+                pthread_mutex_unlock(&s_views_lock);
+                return 0;
+            }
+            s_views[slot].addr = (void *)cut_hi;
+            s_views[slot].len = b - cut_hi;
+            s_views[i].len = cut_lo - a;
+        }
+    }
+    pthread_mutex_unlock(&s_views_lock);
+    return covered;
 }
 
 /* An unnamed file descriptor that ftruncate and mmap both accept. Linux has
