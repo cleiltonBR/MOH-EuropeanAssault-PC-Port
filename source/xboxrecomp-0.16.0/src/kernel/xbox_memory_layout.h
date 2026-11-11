@@ -134,6 +134,8 @@ void xbox_SetTotalRam(size_t bytes);
  * @return TRUE on success, FALSE on failure.
  */
 BOOL xbox_MemoryLayoutInit(const void *xbe_data, size_t xbe_size);
+/* Detailed reason for the last initialization failure; empty after success. */
+const char *xbox_MemoryLayoutLastError(void);
 
 /**
  * Release the reserved Xbox memory layout.
