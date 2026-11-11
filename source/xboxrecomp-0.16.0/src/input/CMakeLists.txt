@@ -12,7 +12,9 @@ target_include_directories(xbox_input PUBLIC ${CMAKE_CURRENT_SOURCE_DIR})
 add_subdirectory(mapping)
 target_link_libraries(xbox_input PUBLIC xbox_input_map)
 
-if(WIN32)
+if(ANDROID)
+    # Android injects native key/touch states through xbox_InputKeySet().
+elseif(WIN32)
     # Mouse+keyboard pad (RECOMP_MKB) reads Win32 raw input.
     target_sources(xbox_input PRIVATE mkb_input.c)
     # mingw-w64's libxinput.a imports XINPUT1_3.dll, the DirectX June 2010
