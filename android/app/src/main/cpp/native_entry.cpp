@@ -22,6 +22,7 @@
 #include <unistd.h>
 #include <fcntl.h>
 #include <limits.h>
+#include <ucontext.h>
 
 extern "C" void (*recomp_lookup(uint32_t xbox_va))(void);
 /* The recompiler models x86 registers as thread-local state. MemoryLayoutInit
@@ -57,6 +58,21 @@ std::vector<uint8_t> g_xbe_image;
 
 char g_log_path[PATH_MAX] = {0};
 char g_crash_marker_path[PATH_MAX] = {0};
+volatile sig_atomic_t g_crash_logged = 0;
+
+void writeHexValue(int fd, uintptr_t value) {
+    char buffer[2 * sizeof(uintptr_t)];
+    size_t count = 0;
+    do {
+        buffer[count++] = "0123456789ABCDEF"[value & 0xFu];
+        value >>= 4;
+    } while (value && count < sizeof(buffer));
+    while (count) {
+        char ch = buffer[--count];
+        (void)write(fd, &ch, 1);
+    }
+}
+
 void appendRuntimeLog(const char* message) {
     if (!g_log_path[0] || !message) return;
     int fd = open(g_log_path, O_WRONLY | O_CREAT | O_APPEND | O_CLOEXEC, 0600);
@@ -65,40 +81,64 @@ void appendRuntimeLog(const char* message) {
     (void)write(fd, "\n", 1);
     close(fd);
 }
-void fatalSignalHandler(int signalNumber, siginfo_t* info, void*) {
+void fatalSignalHandler(int signalNumber, siginfo_t* info, void* rawContext) {
+    if (g_crash_logged) _exit(128 + signalNumber);
+    g_crash_logged = 1;
+
     if (g_log_path[0]) {
         int fd = open(g_log_path, O_WRONLY | O_CREAT | O_APPEND | O_CLOEXEC, 0600);
         if (fd >= 0) {
             static const char prefix[] = "\nFATAL NATIVE SIGNAL: ";
             (void)write(fd, prefix, sizeof(prefix) - 1);
-            char digits[16]; size_t count = 0;
-            unsigned int value = signalNumber < 0 ? 0u : (unsigned int)signalNumber;
-            do { digits[count++] = (char)('0' + (value % 10)); value /= 10; } while (value && count < sizeof(digits));
-            while (count) { char ch = digits[--count]; (void)write(fd, &ch, 1); }
+            writeHexValue(fd, (uintptr_t)signalNumber);
             static const char addressPrefix[] = " fault_addr=0x";
             (void)write(fd, addressPrefix, sizeof(addressPrefix) - 1);
-            uintptr_t address = info ? reinterpret_cast<uintptr_t>(info->si_addr) : 0;
-            char hex[2 * sizeof(uintptr_t)]; size_t hexCount = 0;
-            do {
-                unsigned int digit = (unsigned int)(address & 0xFu);
-                hex[hexCount++] = "0123456789ABCDEF"[digit];
-                address >>= 4;
-            } while (address && hexCount < sizeof(hex));
-            while (hexCount) { char ch = hex[--hexCount]; (void)write(fd, &ch, 1); }
+            writeHexValue(fd, info ? reinterpret_cast<uintptr_t>(info->si_addr) : 0);
+
+#if defined(__aarch64__)
+            const ucontext_t* context = static_cast<const ucontext_t*>(rawContext);
+            if (context) {
+                static const char pcPrefix[] = " pc=0x";
+                static const char spPrefix[] = " sp=0x";
+                static const char lrPrefix[] = " lr=0x";
+                static const char x0Prefix[] = " x0=0x";
+                static const char x1Prefix[] = " x1=0x";
+                static const char x2Prefix[] = " x2=0x";
+                static const char x3Prefix[] = " x3=0x";
+                (void)write(fd, pcPrefix, sizeof(pcPrefix) - 1);
+                writeHexValue(fd, (uintptr_t)context->uc_mcontext.pc);
+                (void)write(fd, spPrefix, sizeof(spPrefix) - 1);
+                writeHexValue(fd, (uintptr_t)context->uc_mcontext.sp);
+                (void)write(fd, lrPrefix, sizeof(lrPrefix) - 1);
+                writeHexValue(fd, (uintptr_t)context->uc_mcontext.regs[30]);
+                (void)write(fd, x0Prefix, sizeof(x0Prefix) - 1);
+                writeHexValue(fd, (uintptr_t)context->uc_mcontext.regs[0]);
+                (void)write(fd, x1Prefix, sizeof(x1Prefix) - 1);
+                writeHexValue(fd, (uintptr_t)context->uc_mcontext.regs[1]);
+                (void)write(fd, x2Prefix, sizeof(x2Prefix) - 1);
+                writeHexValue(fd, (uintptr_t)context->uc_mcontext.regs[2]);
+                (void)write(fd, x3Prefix, sizeof(x3Prefix) - 1);
+                writeHexValue(fd, (uintptr_t)context->uc_mcontext.regs[3]);
+            }
+#endif
             (void)write(fd, "\n", 1);
             close(fd);
         }
     }
     if (g_crash_marker_path[0]) {
         int marker = open(g_crash_marker_path, O_WRONLY | O_CREAT | O_TRUNC | O_CLOEXEC, 0600);
-        if (marker >= 0) { static const char crashed[] = "native-crash\n"; (void)write(marker, crashed, sizeof(crashed)-1); close(marker); }
+        if (marker >= 0) {
+            static const char crashed[] = "native-crash\\n";
+            (void)write(marker, crashed, sizeof(crashed) - 1);
+            close(marker);
+        }
     }
     _exit(128 + signalNumber);
 }
 void installCrashDiagnostics() {
     struct sigaction action{};
     action.sa_sigaction = fatalSignalHandler;
-    sigemptyset(&action.sa_mask);
+    sigfillset(&action.sa_mask);
     action.sa_flags = SA_SIGINFO | SA_RESETHAND;
     sigaction(SIGSEGV, &action, nullptr);
     sigaction(SIGABRT, &action, nullptr);
