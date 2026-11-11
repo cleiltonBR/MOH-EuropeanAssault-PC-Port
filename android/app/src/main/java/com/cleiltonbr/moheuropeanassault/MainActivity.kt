@@ -1,6 +1,8 @@
 package com.cleiltonbr.moheuropeanassault
 
 import android.app.Activity
+import android.app.ActivityManager
+import android.os.Build
 import android.content.Intent
 import android.net.Uri
 import android.os.Bundle
@@ -170,6 +172,37 @@ class MainActivity : Activity(), SurfaceHolder.Callback {
         } ?: throw IllegalStateException("Não foi possível ler a pasta selecionada")
     }
 
+
+    private fun captureHistoricalExitInfo() {
+        val output = File(filesDir, "moh-exit-info-previous.txt")
+        try {
+            if (Build.VERSION.SDK_INT < Build.VERSION_CODES.R) {
+                output.writeText("Historical process exit reasons require Android 11 (API 30) or newer.\\n")
+                return
+            }
+            val manager = getSystemService(ACTIVITY_SERVICE) as ActivityManager
+            val exits = manager.getHistoricalProcessExitReasons(packageName, 0, 5)
+            output.writeText(buildString {
+                append("Android historical process exit information (newest first)\\n")
+                if (exits.isEmpty()) append("Android returned no historical exit records.\\n")
+                exits.forEachIndexed { index, info ->
+                    append("#").append(index + 1)
+                        .append(" timestamp=").append(info.timestamp)
+                        .append(" reason=").append(info.reason)
+                        .append(" status=").append(info.status)
+                        .append(" importance=").append(info.importance)
+                        .append(" pid=").append(info.pid)
+                        .append(" process=").append(info.processName)
+                        .append(" pss_kb=").append(info.pss)
+                        .append(" rss_kb=").append(info.rss)
+                        .append("\\n description=").append(info.description ?: "(none)")
+                        .append('\\n')
+                }
+            })
+        } catch (e: Exception) {
+            try { output.writeText("Could not read Android process exit information: " + e) } catch (_: Exception) { }
+        }
+    }
 
     private fun appendLocalLog(message: String) {
         try {
