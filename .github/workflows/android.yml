@@ -82,6 +82,42 @@ jobs:
       - name: Compile native ARM64 runtime and generated game archive
         run: gradle --no-daemon -p android :app:externalNativeBuildDebug
 
+      - name: Isolate native CMake targets after failure
+        if: failure()
+        shell: bash
+        run: |
+          set +e
+          REPORT="$RUNNER_TEMP/native-target-diagnostics.txt"
+          : > "$REPORT"
+          echo "Native CMake target isolation (exit codes only; no build logs)" >> "$REPORT"
+          mapfile -t BUILD_FILES < <(find android/app/.cxx -type f -name build.ninja -print 2>/dev/null)
+          if [ "${#BUILD_FILES[@]}" -eq 0 ]; then
+            echo "No configured CMake/Ninja build directory found" >> "$REPORT"
+          fi
+          for BUILD_FILE in "${BUILD_FILES[@]}"; do
+            BUILD_DIR="$(dirname "$BUILD_FILE")"
+            echo "Build directory: ${BUILD_DIR#android/app/.cxx/}" >> "$REPORT"
+            for TARGET in platform xbox_apu xbox_kernel xbox_d3d8 moh_generated_recomp_arm64 moh_android; do
+              cmake --build "$BUILD_DIR" --target "$TARGET" --parallel 2 >/dev/null 2>&1
+              RESULT=$?
+              printf '%-32s exit=%s\n' "$TARGET" "$RESULT" >> "$REPORT"
+            done
+          done
+          for ARCHIVE in android/app/.cxx/Debug/*/arm64-v8a/*.a; do
+            [ -f "$ARCHIVE" ] && printf 'archive-present %s bytes=%s\n' "$ARCHIVE" "$(stat -c %s "$ARCHIVE")" >> "$REPORT"
+          done
+          cat "$REPORT"
+          mkdir -p android/native-target-diagnostics
+          cp "$REPORT" android/native-target-diagnostics/targets.txt
+
+      - name: Upload native target diagnostics
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: moh-native-target-diagnostics
+          path: android/native-target-diagnostics/targets.txt
+          if-no-files-found: ignore
+
       - name: Package ARM64 debug APK
         run: gradle --no-daemon -p android :app:assembleDebug
 
