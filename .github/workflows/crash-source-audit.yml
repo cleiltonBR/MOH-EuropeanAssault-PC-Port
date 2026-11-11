@@ -1,0 +1,127 @@
+name: Inspect Android crash function in generated sources
+
+on:
+  push:
+    branches: [android-port]
+    paths:
+      - ".github/workflows/crash-source-audit.yml"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  inspect-generated-function:
+    runs-on: ubuntu-latest
+    env:
+      MOH_PRIVATE_REPO_TOKEN: ${{ secrets.MOH_PRIVATE_REPO_TOKEN }}
+    steps:
+      - name: Checkout Android port
+        uses: actions/checkout@v4
+
+      - name: Require private generated sources
+        run: |
+          if [ -z "$MOH_PRIVATE_REPO_TOKEN" ]; then
+            echo "::error::MOH_PRIVATE_REPO_TOKEN is required."
+            exit 1
+          fi
+
+      - name: Checkout private generated archive
+        uses: actions/checkout@v4
+        with:
+          repository: cleiltonBR/MOH-EuropeanAssault-Private
+          ref: main
+          token: ${{ secrets.MOH_PRIVATE_REPO_TOKEN }}
+          path: private-generated
+          persist-credentials: false
+
+      - name: Extract function and memory access contract
+        shell: bash
+        run: |
+          set -euo pipefail
+          test -s private-generated/recompilation.zip
+          mkdir -p "$RUNNER_TEMP/moh-recomp" android/crash-source-audit
+          unzip -q private-generated/recompilation.zip -d "$RUNNER_TEMP/moh-recomp"
+          GEN_HEADER="$(find "$RUNNER_TEMP/moh-recomp" -type f -name recomp_funcs.h -print -quit)"
+          test -n "$GEN_HEADER"
+          GEN_DIR="$(dirname "$GEN_HEADER")"
+          test -f "$GEN_DIR/recomp_types.h"
+          python3 - "$GEN_DIR" android/crash-source-audit/sub_00108315.txt <<'PY'
+          import pathlib, re, sys
+          root = pathlib.Path(sys.argv[1])
+          output = pathlib.Path(sys.argv[2])
+          symbol = "sub_00108315"
+          rows = []
+          header = root / "recomp_types.h"
+          hlines = header.read_text(errors="replace").splitlines()
+          rows.append("=== Generated memory access contract ===")
+          for i, line in enumerate(hlines):
+              if any(token in line for token in ("XBOX_PTR", "MEM8(", "MEM16(", "MEM32(", "MEM64(", "g_xbox_mem_offset")):
+                  lo, hi = max(0, i-2), min(len(hlines), i+3)
+                  rows.extend(f"recomp_types.h:{n+1}: {hlines[n]}" for n in range(lo, hi))
+          rows.append("")
+          rows.append("=== Exact generated definition ===")
+          found = False
+          for path in sorted(root.glob("*.c")):
+              source = path.read_text(errors="replace")
+              match = re.search(r"(?m)^\s*(?:static\s+)?(?:void|int|unsigned|long|float|double|[A-Za-z_]\w*\s*\*?)\s+" + symbol + r"\s*\([^;]*\)\s*\{", source)
+              if not match:
+                  continue
+              found = True
+              start = match.start()
+              brace = source.find("{", match.start())
+              depth = 0
+              state = "code"
+              escaped = False
+              i = brace
+              while i < len(source):
+                  ch = source[i]
+                  nxt = source[i+1] if i+1 < len(source) else ""
+                  if state == "code":
+                      if ch == "/" and nxt == "*":
+                          state = "block"; i += 2; continue
+                      if ch == "/" and nxt == "/":
+                          state = "line"; i += 2; continue
+                      if ch == '"': state = "string"
+                      elif ch == "'": state = "char"
+                      elif ch == "{": depth += 1
+                      elif ch == "}":
+                          depth -= 1
+                          if depth == 0:
+                              i += 1; break
+                  elif state == "block":
+                      if ch == "*" and nxt == "/": state = "code"; i += 2; continue
+                  elif state in ("string", "char"):
+                      if escaped: escaped = False
+                      elif ch == "\\": escaped = True
+                      elif (state == "string" and ch == '"') or (state == "char" and ch == "'"):
+                          state = "code"
+                  elif state == "line" and ch == "\n":
+                      state = "code"
+                  i += 1
+              rows.append(f"Source: {path.name}")
+              rows.extend(f"{n+1}: {line}" for n, line in enumerate(source[start:i].splitlines()))
+              break
+          if not found:
+              rows.append("ERROR: generated definition sub_00108315 was not found in top-level generated C files.")
+              for path in sorted(root.glob("*.c")):
+                  for n, line in enumerate(path.read_text(errors="replace").splitlines(), 1):
+                      if symbol in line:
+                          rows.append(f"{path.name}:{n}: {line}")
+          rows.append("")
+          rows.append("=== References to guest-pointer translation in generated source ===")
+          for path in sorted(root.glob("*.c")):
+              for n, line in enumerate(path.read_text(errors="replace").splitlines(), 1):
+                  if symbol in line or "XBOX_PTR" in line:
+                      rows.append(f"{path.name}:{n}: {line[:500]}")
+          output.write_text("\n".join(rows) + "\n")
+          print(f"Found {symbol}: {found}; report bytes={output.stat().st_size}")
+          PY
+
+      - name: Upload generated crash-function audit
+        uses: actions/upload-artifact@v4
+        with:
+          name: moh-crash-function-source-audit
+          path: android/crash-source-audit/sub_00108315.txt
+          if-no-files-found: error
+          retention-days: 3
