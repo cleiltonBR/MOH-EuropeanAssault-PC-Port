@@ -19,6 +19,13 @@
 #include <vector>
 
 extern "C" void (*recomp_lookup(uint32_t xbox_va))(void);
+/* The recompiler models x86 registers as thread-local state. MemoryLayoutInit
+ * initializes ESP to XBOX_STACK_TOP on this render/guest thread. */
+#if defined(__GNUC__) || defined(__clang__)
+extern __thread uint32_t g_esp;
+#else
+extern uint32_t g_esp;
+#endif
 extern "C" int moh_android_is_foreground(void);
 
 extern "C" void d3d8_android_set_egl_surface(
@@ -166,7 +173,27 @@ void initializeXboxRuntimeLocked() {
         g_runtime_status = "kernel ready, but generated dispatcher has no function for the XBE entry VA";
         return;
     }
-    g_runtime_status = "Xbox memory, kernel bridge and generated dispatcher ready; XBE entry resolved but not started";
+    /* Match the desktop bootstrap: the generated entry is a void(void)
+     * function and consumes the emulated x86 register file/stack. The lookup
+     * above only proved that code exists; invoke it now on this same thread,
+     * where the EGL context, guest memory and TLS register state are valid. */
+    if (g_esp != XBOX_STACK_TOP) {
+        g_runtime_stage.store(-4);
+        g_runtime_status = "dispatcher ready, but guest ESP was not initialized";
+        return;
+    }
+    void (*entry)(void) = recomp_lookup(g_xbe_entry);
+    if (!entry) {
+        g_runtime_stage.store(-3);
+        g_runtime_status = "kernel ready, but generated dispatcher has no function for the XBE entry VA";
+        return;
+    }
+    g_runtime_stage.store(5);
+    g_runtime_status = "starting recompiled XBE entry point";
+    fflush(stdout);
+    entry();
+    g_runtime_stage.store(6);
+    g_runtime_status = "recompiled XBE entry point returned";
 #else
     g_runtime_status = "Xbox guest memory and kernel thunk bridge ready; generated dispatcher not linked";
 #endif
