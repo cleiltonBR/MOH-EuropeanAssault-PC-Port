@@ -102,19 +102,43 @@ jobs:
               RESULT=$?
               printf '%-32s exit=%s\\n' "$TARGET" "$RESULT" >> "$REPORT"
             done
-            mapfile -t NATIVE_OBJECTS < <(ninja -C "$BUILD_DIR" -t targets all 2>/dev/null | awk -F: '$1 ~ /native_entry\\.cpp\\.o$/ {print $1}')
-            if [ "${#NATIVE_OBJECTS[@]}" -eq 0 ]; then
-              echo "native_entry.cpp object target not found" >> "$REPORT"
-            else
-              for OBJECT in "${NATIVE_OBJECTS[@]}"; do
-                ninja -C "$BUILD_DIR" "$OBJECT" >/dev/null 2>&1
-                RESULT=$?
-                printf 'native_entry.cpp compile         exit=%s\\n' "$RESULT" >> "$REPORT"
-              done
-            fi
-            ninja -C "$BUILD_DIR" libmoh_android.so >/dev/null 2>&1
-            RESULT=$?
-            printf 'libmoh_android.so link            exit=%s\\n' "$RESULT" >> "$REPORT"
+            python3 - "$BUILD_DIR" "$REPORT" <<'PY'
+          import json, pathlib, shlex, subprocess, sys
+          build = pathlib.Path(sys.argv[1])
+          report = pathlib.Path(sys.argv[2])
+          db_path = build / "compile_commands.json"
+          entries = json.loads(db_path.read_text()) if db_path.exists() else []
+          native = [e for e in entries if pathlib.Path(e["file"]).name == "native_entry.cpp"]
+          if not native:
+              with report.open("a") as out:
+                  out.write("native_entry.cpp compile command not found\\n")
+          for entry in native:
+              command = entry.get("arguments") or shlex.split(entry["command"])
+              p = subprocess.run(command, cwd=entry["directory"], text=True,
+                                 stdout=subprocess.PIPE, stderr=subprocess.STDOUT)
+              with report.open("a") as out:
+                  out.write(f"native_entry.cpp compile exit={p.returncode}\\n")
+                  for line in p.stdout.splitlines():
+                      if any(x in line.lower() for x in ("error:", "fatal error:", "undefined reference", "no such file")):
+                          out.write("  " + line[:500] + "\\n")
+          commands = subprocess.run(["ninja", "-C", str(build), "-t", "commands", "libmoh_android.so"],
+                                    text=True, stdout=subprocess.PIPE, stderr=subprocess.DEVNULL)
+          link_commands = [line for line in commands.stdout.splitlines()
+                           if " -o libmoh_android.so " in line or line.rstrip().endswith("libmoh_android.so")]
+          if not link_commands:
+              with report.open("a") as out:
+                  out.write("libmoh_android.so link command not found\\n")
+          else:
+              p = subprocess.run(link_commands[-1], cwd=build, shell=True, text=True,
+                                 stdout=subprocess.PIPE, stderr=subprocess.STDOUT)
+              with report.open("a") as out:
+                  out.write(f"libmoh_android.so link exit={p.returncode}\\n")
+                  for line in p.stdout.splitlines():
+                      low = line.lower()
+                      if any(x in low for x in ("undefined symbol", "undefined reference", "multiple definition",
+                                                "cannot find", "error:", "ld.lld:", "clang++:")):
+                          out.write("  " + line[:500] + "\\n")
+          PY
           done
           for ARCHIVE in android/app/.cxx/Debug/*/arm64-v8a/*.a; do
             [ -f "$ARCHIVE" ] && printf 'archive-present %s bytes=%s\n' "$ARCHIVE" "$(stat -c %s "$ARCHIVE")" >> "$REPORT"
