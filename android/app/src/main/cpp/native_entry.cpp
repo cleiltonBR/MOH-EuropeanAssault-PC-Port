@@ -13,7 +13,6 @@
 #include <cstdlib>
 #include <string>
 #include <mutex>
-#include <condition_variable>
 #include <sys/stat.h>
 #include <cstdint>
 #include <fstream>
@@ -216,6 +215,7 @@ void renderLoop(ANativeWindow* window) {
         std::lock_guard<std::mutex> lock(g_game_dir_mutex);
         initializeXboxRuntimeLocked();
     }
+    g_runtime_init_requested.store(false);
     g_stage.store(4);
     g_stage.store(5);
     IDirect3D8* d3d = xbox_Direct3DCreate8(0);
@@ -276,15 +276,13 @@ extern "C" JNIEXPORT void JNICALL
 Java_com_cleiltonbr_moheuropeanassault_MainActivity_nativeSetGameDirectory(
     JNIEnv* env, jobject, jstring path) {
     const char* chars = path ? env->GetStringUTFChars(path, nullptr) : nullptr;
-    bool startRuntime = false;
     {
         std::lock_guard<std::mutex> lock(g_game_dir_mutex);
         g_game_dir = chars ? chars : "";
         inspectXbeLocked();
-        startRuntime = !g_xbe_image.empty() && g_xbe_entry && g_xbe_kernel_thunk;
-        if (startRuntime) {
+        if (!g_xbe_image.empty() && g_xbe_entry && g_xbe_kernel_thunk) {
             g_runtime_stage.store(1);
-            g_runtime_status = "starting Xbox runtime worker";
+            g_runtime_status = "waiting for EGL render thread";
         }
     }
     if (chars) env->ReleaseStringUTFChars(path, chars);
