@@ -18,6 +18,36 @@
 
 #include <string.h>
 #include <ctype.h>
+#include <stddef.h>
+#include <stdint.h>
+
+extern ptrdiff_t xbox_GetMemoryOffset(void);
+
+/* "snap:<n>" in RECOMP_PAD_SCRIPT captures the same two guest-memory
+ * regions on every host. This belongs to the USB pad-script layer, not the
+ * Win32-only mouse/keyboard implementation. */
+void mkb_snapshot(int n)
+{
+    const char *dir = getenv("RECOMP_MKB_SNAPDIR");
+    char path[600];
+    FILE *f;
+    const uint8_t *guest = (const uint8_t *)(uintptr_t)xbox_GetMemoryOffset();
+
+    snprintf(path, sizeof path, "%s/snap_%d.bin",
+             dir && *dir ? dir : ".", n);
+    f = fopen(path, "wb");
+    if (!f)
+        return;
+    if (fwrite(guest + 0x00010000u, 1, 0x04000000u - 0x00010000u, f)
+            != 0x04000000u - 0x00010000u
+        || fwrite(guest + 0x80000000u, 1, 0x04000000u, f) != 0x04000000u) {
+        fprintf(stderr, "  [SNAP] %d -> %s (incomplete write)\n", n, path);
+    } else {
+        fprintf(stderr, "  [SNAP] %d -> %s\n", n, path);
+    }
+    fclose(f);
+    fflush(stderr);
+}
 
 /* ---- descriptors ------------------------------------------------------- */
 
