@@ -531,7 +531,12 @@ Java_com_cleiltonbr_moheuropeanassault_MainActivity_nativeRequestGameStart(JNIEn
 extern "C" JNIEXPORT jstring JNICALL
 Java_com_cleiltonbr_moheuropeanassault_MainActivity_nativeStatus(JNIEnv* env, jobject) {
     char message[384];
-    std::lock_guard<std::mutex> lock(g_game_dir_mutex);
+    /* Status is polled from the UI thread. Never block it while the guest
+     * startup path owns this mutex (including the generated XBE entry call). */
+    std::unique_lock<std::mutex> lock(g_game_dir_mutex, std::try_to_lock);
+    if (!lock.owns_lock()) {
+        return env->NewStringUTF("runtime ocupado; diagnóstico local disponível");
+    }
     const bool xbeReady = hasGameXbe();
     snprintf(message, sizeof(message),
         "stage=%d render_frames=%llu game_frames=%llu error=0x%08X. XBE %s (%zu bytes); %s; entry=0x%08X thunk=0x%08X; runtime_stage=%d (%s).",
