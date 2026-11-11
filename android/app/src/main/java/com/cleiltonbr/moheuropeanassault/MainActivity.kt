@@ -42,14 +42,26 @@ class MainActivity : Activity(), SurfaceHolder.Callback {
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
         System.loadLibrary("moh_android")
-        // A new app process starts a fresh diagnostic session. Remove stale
-        // crash state and logs so exported reports describe only this run.
+        // Preserve the previous process diagnostics before starting a fresh log.
+        // A native crash kills the process; the user must relaunch the app to share it.
+        val previousLog = File(filesDir, "moh-runtime.log")
+        val previousMarker = File(filesDir, "moh-crash.marker")
         try {
-            File(filesDir, "moh-crash.marker").delete()
-            File(filesDir, "moh-runtime.log").delete()
+            val previousText = if (previousLog.isFile) previousLog.readText() else ""
+            val hadCrash = previousMarker.exists() ||
+                previousText.contains("FATAL NATIVE SIGNAL:") ||
+                previousText.contains("FATAL JAVA EXCEPTION")
+            if (hadCrash) {
+                File(filesDir, "moh-runtime-previous.log").writeText(previousText)
+                if (previousMarker.exists()) {
+                    File(filesDir, "moh-crash-previous.marker").writeText(previousMarker.readText())
+                }
+            }
+            previousMarker.delete()
+            previousLog.delete()
         } catch (_: Exception) { }
         nativeConfigureLogging(filesDir.absolutePath)
-        appendLocalLog("Diagnostics: new app session; previous marker and log cleared")
+        appendLocalLog("Diagnostics: new app session; previous crash diagnostics preserved when present")
         Thread.setDefaultUncaughtExceptionHandler { thread, error ->
             appendLocalLog("FATAL JAVA EXCEPTION on " + thread.name + ": " + android.util.Log.getStackTraceString(error))
             val marker = File(filesDir, "moh-crash.marker")
@@ -171,10 +183,13 @@ class MainActivity : Activity(), SurfaceHolder.Callback {
     private fun shareDiagnostics() {
         val logFile = File(filesDir, "moh-runtime.log")
         val marker = File(filesDir, "moh-crash.marker")
+        val previousLogFile = File(filesDir, "moh-runtime-previous.log")
+        val previousMarker = File(filesDir, "moh-crash-previous.marker")
         val report = buildString {
             append("Medal of Honor: European Assault - Android diagnostic report\n")
             append("App version: 0.2.0-android-game-code-linked\n")
-            append("Crash marker present: ").append(marker.exists()).append("\n\n")
+            append("Current session crash marker present: ").append(marker.exists()).append("\n")
+            append("Previous session crash marker preserved: ").append(previousMarker.exists()).append("\n\n")
             append("Runtime status: captured from local files; native runtime intentionally not queried.\n")
             append("\nRuntime log:\n")
             if (logFile.exists()) {
@@ -252,8 +267,22 @@ class MainActivity : Activity(), SurfaceHolder.Callback {
                 }
             }
             if (marker.exists()) {
-                try { append("\n\nCrash marker:\n").append(marker.readText().take(1024)) }
-                catch (e: Exception) { append("\nCrash marker could not be read: ").append(e.message) }
+                try { append("\n\nCurrent session crash marker:\n").append(marker.readText().take(1024)) }
+                catch (e: Exception) { append("\nCurrent crash marker could not be read: ").append(e.message) }
+            }
+            if (previousLogFile.isFile) {
+                append("\n\nPREVIOUS SESSION LOG (preserved after crash):\n")
+                try {
+                    val oldText = previousLogFile.readText()
+                    if (oldText.length > 48 * 1024) append("[Earlier previous-session log content omitted.]\n")
+                    append(oldText.takeLast(48 * 1024))
+                } catch (e: Exception) {
+                    append("Could not read previous session log: ").append(e.message)
+                }
+            }
+            if (previousMarker.exists()) {
+                try { append("\n\nPrevious session crash marker:\n").append(previousMarker.readText().take(1024)) }
+                catch (e: Exception) { append("\nPrevious crash marker could not be read: ").append(e.message) }
             }
         }
         val send = Intent(Intent.ACTION_SEND).apply {
