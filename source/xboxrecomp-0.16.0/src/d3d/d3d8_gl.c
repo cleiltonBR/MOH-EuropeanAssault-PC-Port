@@ -42,6 +42,8 @@
 #include <stdlib.h>
 #include <string.h>
 #include <math.h>
+#include <time.h>
+#include <stddef.h>
 
 #ifndef D3D_OK
 #define D3D_OK ((HRESULT)0)
@@ -123,6 +125,97 @@ typedef struct {
 } D3DGL;
 
 static D3DGL g;
+
+#ifdef __ANDROID__
+/* GLES damage flash replacing the Windows-only layered-window compositor. */
+static GLuint s_fx_vao, s_fx_vbo;
+static volatile unsigned s_fx_strength_milli;
+static volatile uint64_t s_fx_until_ms;
+
+static uint64_t fx_now_ms(void)
+{
+    struct timespec ts;
+    if (clock_gettime(CLOCK_MONOTONIC, &ts) != 0) return 0;
+    return (uint64_t)ts.tv_sec * 1000u + (uint64_t)ts.tv_nsec / 1000000u;
+}
+
+void recomp_screenfx_trigger(int kind, float strength)
+{
+    unsigned scaled;
+    if (kind != 0 || !isfinite(strength)) return;
+    if (strength < 0.0f) strength = 0.0f;
+    if (strength > 1.0f) strength = 1.0f;
+    scaled = (unsigned)(strength * 1000.0f + 0.5f);
+    if (!scaled) return;
+    __atomic_store_n(&s_fx_strength_milli, scaled, __ATOMIC_RELAXED);
+    __atomic_store_n(&s_fx_until_ms, fx_now_ms() + 600u, __ATOMIC_RELEASE);
+}
+
+typedef struct {
+    GLfloat x, y, z, w, r, g, b, a, u, v;
+} AndroidFxVertex;
+
+static void android_screenfx_draw(void)
+{
+    static const GLfloat identity[16] = {
+        1,0,0,0, 0,1,0,0, 0,0,1,0, 0,0,0,1
+    };
+    uint64_t now = fx_now_ms();
+    uint64_t until = __atomic_load_n(&s_fx_until_ms, __ATOMIC_ACQUIRE);
+    unsigned strength = __atomic_load_n(&s_fx_strength_milli, __ATOMIC_RELAXED);
+    GLint old_program=0, old_vao=0, old_array_buffer=0;
+    GLint old_src_rgb=0, old_dst_rgb=0, old_src_alpha=0, old_dst_alpha=0;
+    GLboolean blend_on, depth_on, cull_on, depth_write;
+    GLfloat alpha;
+    AndroidFxVertex v[4];
+
+    if (!s_fx_vao || !s_fx_vbo || !strength || now >= until) return;
+    alpha = 0.30f * ((GLfloat)strength / 1000.0f) * ((GLfloat)(until-now) / 600.0f);
+    if (alpha <= 0.001f) return;
+
+    blend_on=glIsEnabled(GL_BLEND); depth_on=glIsEnabled(GL_DEPTH_TEST);
+    cull_on=glIsEnabled(GL_CULL_FACE);
+    glGetBooleanv(GL_DEPTH_WRITEMASK,&depth_write);
+    glGetIntegerv(GL_CURRENT_PROGRAM,&old_program);
+    glGetIntegerv(GL_VERTEX_ARRAY_BINDING,&old_vao);
+    glGetIntegerv(GL_ARRAY_BUFFER_BINDING,&old_array_buffer);
+    glGetIntegerv(GL_BLEND_SRC_RGB,&old_src_rgb);
+    glGetIntegerv(GL_BLEND_DST_RGB,&old_dst_rgb);
+    glGetIntegerv(GL_BLEND_SRC_ALPHA,&old_src_alpha);
+    glGetIntegerv(GL_BLEND_DST_ALPHA,&old_dst_alpha);
+
+    v[0]=(AndroidFxVertex){-1,-1,0,1,0.85f,0.015f,0.005f,alpha,0,0};
+    v[1]=(AndroidFxVertex){ 1,-1,0,1,0.85f,0.015f,0.005f,alpha,1,0};
+    v[2]=(AndroidFxVertex){-1, 1,0,1,0.85f,0.015f,0.005f,alpha,0,1};
+    v[3]=(AndroidFxVertex){ 1, 1,0,1,0.85f,0.015f,0.005f,alpha,1,1};
+
+    glUseProgram(g.prog);
+    glUniformMatrix4fv(g.u_mvp,1,GL_FALSE,identity);
+    glUniform1i(g.u_use_xform,0);
+    glUniform1i(g.u_use_tex,0);
+    glBindVertexArray(s_fx_vao);
+    glBindBuffer(GL_ARRAY_BUFFER,s_fx_vbo);
+    glBufferData(GL_ARRAY_BUFFER,sizeof(v),v,GL_STREAM_DRAW);
+    glEnableVertexAttribArray(0);
+    glVertexAttribPointer(0,4,GL_FLOAT,GL_FALSE,sizeof(AndroidFxVertex),(const void *)offsetof(AndroidFxVertex,x));
+    glEnableVertexAttribArray(1);
+    glVertexAttribPointer(1,4,GL_FLOAT,GL_FALSE,sizeof(AndroidFxVertex),(const void *)offsetof(AndroidFxVertex,r));
+    glEnableVertexAttribArray(2);
+    glVertexAttribPointer(2,2,GL_FLOAT,GL_FALSE,sizeof(AndroidFxVertex),(const void *)offsetof(AndroidFxVertex,u));
+    glDisable(GL_DEPTH_TEST); glDepthMask(GL_FALSE); glDisable(GL_CULL_FACE);
+    glEnable(GL_BLEND); glBlendFunc(GL_SRC_ALPHA,GL_ONE_MINUS_SRC_ALPHA);
+    glDrawArrays(GL_TRIANGLE_STRIP,0,4);
+
+    if(blend_on) glEnable(GL_BLEND); else glDisable(GL_BLEND);
+    glBlendFuncSeparate((GLenum)old_src_rgb,(GLenum)old_dst_rgb,(GLenum)old_src_alpha,(GLenum)old_dst_alpha);
+    if(depth_on) glEnable(GL_DEPTH_TEST); else glDisable(GL_DEPTH_TEST);
+    glDepthMask(depth_write);
+    if(cull_on) glEnable(GL_CULL_FACE); else glDisable(GL_CULL_FACE);
+    glBindVertexArray((GLuint)old_vao);
+    glBindBuffer(GL_ARRAY_BUFFER,(GLuint)old_array_buffer);
+    glUseProgram((GLuint)old_program);
+}
+#endif
 
 #ifdef __ANDROID__
 void d3d8_android_set_egl_surface(EGLDisplay display, EGLSurface surface,
@@ -309,6 +402,11 @@ static void init_gl_pipeline(void)
     g.u_use_tex   = glGetUniformLocation(g.prog, "u_use_tex");
     g.u_use_xform = glGetUniformLocation(g.prog, "u_use_xform");
     g.u_tex0      = glGetUniformLocation(g.prog, "u_tex0");
+
+#ifdef __ANDROID__
+    glGenVertexArrays(1, &s_fx_vao);
+    glGenBuffers(1, &s_fx_vbo);
+#endif
 }
 
 /* ======================================================================== */
@@ -612,6 +710,7 @@ static HRESULT __stdcall dev_Present(IDirect3DDevice8 *s, const RECT *src, const
 {
     (void)s;(void)src;(void)dst;(void)hwnd;(void)dirty;
 #ifdef __ANDROID__
+    android_screenfx_draw();
     if (g_android_display != EGL_NO_DISPLAY &&
         g_android_surface != EGL_NO_SURFACE)
         eglSwapBuffers(g_android_display, g_android_surface);
