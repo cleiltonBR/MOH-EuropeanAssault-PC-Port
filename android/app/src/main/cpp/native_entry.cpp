@@ -162,27 +162,6 @@ void fatalSignalHandler(int signalNumber, siginfo_t* info, void* rawContext) {
 #endif
             (void)write(fd, "\n", 1);
 
-            /* Signal-safe crash map snapshot: raw open/read/write only. This
-             * lets us resolve PC/LR/fault_addr to the exact mapped ELF after
-             * the crash, without calling dladdr or stdio in the handler. */
-            const int mapsFd = open("/proc/self/maps", O_RDONLY | O_CLOEXEC);
-            if (mapsFd >= 0) {
-                static const char mapsHeader[] = "CRASH MAP SNAPSHOT BEGIN\n";
-                (void)write(fd, mapsHeader, sizeof(mapsHeader) - 1);
-                char mapsBuffer[4096];
-                size_t total = 0;
-                ssize_t bytes = 0;
-                while (total < 32768 &&
-                       (bytes = read(mapsFd, mapsBuffer,
-                           sizeof(mapsBuffer) < (32768 - total)
-                               ? sizeof(mapsBuffer) : (32768 - total))) > 0) {
-                    (void)write(fd, mapsBuffer, static_cast<size_t>(bytes));
-                    total += static_cast<size_t>(bytes);
-                }
-                static const char mapsFooter[] = "\nCRASH MAP SNAPSHOT END\n";
-                (void)write(fd, mapsFooter, sizeof(mapsFooter) - 1);
-                close(mapsFd);
-            }
             close(fd);
         }
     }
@@ -293,23 +272,15 @@ void logGuestAddressDiagnostics(void (*entry)(void)) {
             reinterpret_cast<void*>(entry));
         appendRuntimeLog(line);
     }
-    /* Keep only mappings relevant to the guest fault address and generated
-     * dispatcher. Dumping all of /proc/self/maps can consume the log and hide
-     * the fatal-signal record that is needed to diagnose the crash. */
-    constexpr uintptr_t guestFaultProbe = 0x00F7FC04u;
+    /* Capture mappings before entering generated guest code. Reading procfs
+     * from a fatal signal handler proved unreliable on affected Android builds.
+     * The Kotlin exporter later keeps only rows containing fault_addr, PC, SP or LR. */
+    appendRuntimeLog("CRASH MAP SNAPSHOT BEGIN");
     std::ifstream maps("/proc/self/maps");
     std::string mapLine;
-    while (std::getline(maps, mapLine)) {
-        unsigned long long mapStart = 0, mapEnd = 0;
-        if (sscanf(mapLine.c_str(), "%llx-%llx", &mapStart, &mapEnd) != 2)
-            continue;
-        const bool containsGuestProbe =
-            guestFaultProbe >= mapStart && guestFaultProbe < mapEnd;
-        const bool containsDispatcher =
-            hostEntry >= mapStart && hostEntry < mapEnd;
-        if (containsGuestProbe || containsDispatcher)
-            appendRuntimeLog(mapLine.c_str());
-    }
+    while (std::getline(maps, mapLine))
+        appendRuntimeLog(mapLine.c_str());
+    appendRuntimeLog("CRASH MAP SNAPSHOT END");
 }
 
 void initializeXboxRuntimeLocked() {
