@@ -10,6 +10,7 @@
 #include <chrono>
 #include <thread>
 #include <cstdio>
+#include <cstdlib>
 #include <string>
 #include <mutex>
 #include <condition_variable>
@@ -119,6 +120,16 @@ void initializeXboxRuntimeLocked() {
     }
 
     g_runtime_stage.store(1);
+    g_runtime_status = "reserving the 4 GiB Xbox guest address window";
+    /* Playbook ADR 0003: Android reserves the complete 32-bit guest VA range
+     * as PROT_NONE and replaces owned slices with MAP_FIXED_NOREPLACE views.
+     * The POSIX memory-layout backend enables that reservation through this
+     * switch; do it before mapping XBE sections or kernel apertures. */
+    if (setenv("RECOMP_EXT_VMA", "1", 1) != 0) {
+        g_runtime_stage.store(-1);
+        g_runtime_status = "could not enable the Android 4 GiB guest address window";
+        return;
+    }
     g_runtime_status = "mapping Xbox guest memory and loading XBE sections";
     if (!xbox_MemoryLayoutInit(g_xbe_image.data(), g_xbe_image.size())) {
         xbox_MemoryLayoutShutdown();
