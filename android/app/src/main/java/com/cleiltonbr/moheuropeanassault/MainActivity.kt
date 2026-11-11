@@ -14,6 +14,7 @@ import android.view.SurfaceHolder
 import android.view.SurfaceView
 import android.widget.Button
 import android.widget.FrameLayout
+import android.widget.LinearLayout
 import android.widget.TextView
 import android.widget.Toast
 import java.io.File
@@ -25,6 +26,8 @@ class MainActivity : Activity(), SurfaceHolder.Callback {
     private external fun nativeStop()
     private external fun nativeShutdown()
     private external fun nativeSetGameDirectory(path: String)
+    private external fun nativeConfigureLogging(directory: String)
+    private external fun nativeRequestGameStart()
 
     private lateinit var status: TextView
     private val handler = Handler(Looper.getMainLooper())
@@ -39,6 +42,8 @@ class MainActivity : Activity(), SurfaceHolder.Callback {
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
         System.loadLibrary("moh_android")
+        nativeConfigureLogging(filesDir.absolutePath)
+        appendLocalLog("App: onCreate")
         nativeSetGameDirectory(File(filesDir, "game").absolutePath)
 
         val root = FrameLayout(this)
@@ -57,6 +62,18 @@ class MainActivity : Activity(), SurfaceHolder.Callback {
         root.addView(status, FrameLayout.LayoutParams(
             FrameLayout.LayoutParams.MATCH_PARENT, FrameLayout.LayoutParams.WRAP_CONTENT, Gravity.TOP))
 
+        val actions = LinearLayout(this).apply {
+            orientation = LinearLayout.VERTICAL
+            setPadding(8, 4, 8, 8)
+        }
+        val startButton = Button(this).apply {
+            text = "INICIAR JOGO"
+            setOnClickListener {
+                appendLocalLog("UI: start button tapped")
+                nativeRequestGameStart()
+                Toast.makeText(this@MainActivity, "Inicialização do jogo solicitada.", Toast.LENGTH_SHORT).show()
+            }
+        }
         val importButton = Button(this).apply {
             text = "IMPORTAR PASTA DO JOGO"
             setOnClickListener {
@@ -66,7 +83,14 @@ class MainActivity : Activity(), SurfaceHolder.Callback {
                 startActivityForResult(intent, importRequest)
             }
         }
-        root.addView(importButton, FrameLayout.LayoutParams(
+        val shareLogsButton = Button(this).apply {
+            text = "COMPARTILHAR LOGS"
+            setOnClickListener { shareDiagnostics() }
+        }
+        actions.addView(startButton)
+        actions.addView(importButton)
+        actions.addView(shareLogsButton)
+        root.addView(actions, FrameLayout.LayoutParams(
             FrameLayout.LayoutParams.MATCH_PARENT, FrameLayout.LayoutParams.WRAP_CONTENT, Gravity.BOTTOM))
         setContentView(root)
         handler.post(refreshStatus)
@@ -85,10 +109,12 @@ class MainActivity : Activity(), SurfaceHolder.Callback {
             val rootId = DocumentsContract.getTreeDocumentId(tree)
             copyTreeDocument(tree, rootId, gameDir)
             nativeSetGameDirectory(gameDir.absolutePath)
+            appendLocalLog("Import: copied game directory to " + gameDir.absolutePath)
             Toast.makeText(this, "Arquivos copiados. " +
                 if (File(gameDir, "default.xbe").isFile) "default.xbe encontrado." else "default.xbe não encontrado.",
                 Toast.LENGTH_LONG).show()
         } catch (e: Exception) {
+            appendLocalLog("Import exception: " + android.util.Log.getStackTraceString(e))
             Toast.makeText(this, "Falha ao importar: ${e.message}", Toast.LENGTH_LONG).show()
         }
     }
@@ -117,6 +143,37 @@ class MainActivity : Activity(), SurfaceHolder.Callback {
                 }
             }
         } ?: throw IllegalStateException("Não foi possível ler a pasta selecionada")
+    }
+
+
+    private fun appendLocalLog(message: String) {
+        try {
+            File(filesDir, "moh-runtime.log").appendText(
+                java.text.SimpleDateFormat("yyyy-MM-dd HH:mm:ss.SSS", java.util.Locale.US).format(java.util.Date()) +
+                    " " + message + "\\n"
+            )
+        } catch (_: Exception) { }
+    }
+
+    private fun shareDiagnostics() {
+        val logFile = File(filesDir, "moh-runtime.log")
+        val marker = File(filesDir, "moh-crash.marker")
+        val report = buildString {
+            append("Medal of Honor: European Assault - Android diagnostic report\\n")
+            append("App version: 0.2.0-android-game-code-linked\\n")
+            append("Crash marker present: ").append(marker.exists()).append("\\n\\n")
+            append("Current runtime status:\\n")
+            try { append(nativeStatus()) } catch (e: Exception) { append("nativeStatus failed: ").append(e.message) }
+            append("\\n\\nRuntime log:\\n")
+            if (logFile.exists()) append(logFile.readText()) else append("No runtime log found.")
+            if (marker.exists()) append("\\n\\nCrash marker:\\n").append(marker.readText())
+        }
+        val send = Intent(Intent.ACTION_SEND).apply {
+            type = "text/plain"
+            putExtra(Intent.EXTRA_SUBJECT, "Medal of Honor Android - crash diagnostics")
+            putExtra(Intent.EXTRA_TEXT, report)
+        }
+        startActivity(Intent.createChooser(send, "Compartilhar diagnóstico"))
     }
 
     override fun surfaceCreated(holder: SurfaceHolder) { nativeStart(holder.surface) }
