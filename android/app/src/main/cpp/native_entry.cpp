@@ -75,6 +75,16 @@ void fatalSignalHandler(int signalNumber, siginfo_t* info, void*) {
             unsigned int value = signalNumber < 0 ? 0u : (unsigned int)signalNumber;
             do { digits[count++] = (char)('0' + (value % 10)); value /= 10; } while (value && count < sizeof(digits));
             while (count) { char ch = digits[--count]; (void)write(fd, &ch, 1); }
+            static const char addressPrefix[] = " fault_addr=0x";
+            (void)write(fd, addressPrefix, sizeof(addressPrefix) - 1);
+            uintptr_t address = info ? reinterpret_cast<uintptr_t>(info->si_addr) : 0;
+            char hex[2 * sizeof(uintptr_t)]; size_t hexCount = 0;
+            do {
+                unsigned int digit = (unsigned int)(address & 0xFu);
+                hex[hexCount++] = "0123456789ABCDEF"[digit];
+                address >>= 4;
+            } while (address && hexCount < sizeof(hex));
+            while (hexCount) { char ch = hex[--hexCount]; (void)write(fd, &ch, 1); }
             (void)write(fd, "\n", 1);
             close(fd);
         }
