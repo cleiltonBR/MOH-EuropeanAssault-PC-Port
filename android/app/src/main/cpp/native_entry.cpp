@@ -144,6 +144,10 @@ void fatalSignalHandler(int signalNumber, siginfo_t* info, void* rawContext) {
                 static const char x1Prefix[] = " x1=0x";
                 static const char x2Prefix[] = " x2=0x";
                 static const char x3Prefix[] = " x3=0x";
+                static const char x4Prefix[] = " x4=0x";
+                static const char x5Prefix[] = " x5=0x";
+                static const char x6Prefix[] = " x6=0x";
+                static const char x7Prefix[] = " x7=0x";
                 (void)write(fd, pcPrefix, sizeof(pcPrefix) - 1);
                 writeHexValue(fd, (uintptr_t)context->uc_mcontext.pc);
                 (void)write(fd, spPrefix, sizeof(spPrefix) - 1);
@@ -158,6 +162,14 @@ void fatalSignalHandler(int signalNumber, siginfo_t* info, void* rawContext) {
                 writeHexValue(fd, (uintptr_t)context->uc_mcontext.regs[2]);
                 (void)write(fd, x3Prefix, sizeof(x3Prefix) - 1);
                 writeHexValue(fd, (uintptr_t)context->uc_mcontext.regs[3]);
+                (void)write(fd, x4Prefix, sizeof(x4Prefix) - 1);
+                writeHexValue(fd, (uintptr_t)context->uc_mcontext.regs[4]);
+                (void)write(fd, x5Prefix, sizeof(x5Prefix) - 1);
+                writeHexValue(fd, (uintptr_t)context->uc_mcontext.regs[5]);
+                (void)write(fd, x6Prefix, sizeof(x6Prefix) - 1);
+                writeHexValue(fd, (uintptr_t)context->uc_mcontext.regs[6]);
+                (void)write(fd, x7Prefix, sizeof(x7Prefix) - 1);
+                writeHexValue(fd, (uintptr_t)context->uc_mcontext.regs[7]);
             }
 #endif
             (void)write(fd, "\n", 1);
