@@ -31,10 +31,12 @@ target_compile_options(moh_android PRIVATE -Wall -Wextra -Wpedantic)
 # memory-layout and platform primitives. This also makes the native AAudio
 # dependency part of the final Android shared library.
 target_link_libraries(moh_android PRIVATE
+    "-Wl,--start-group"
     platform
     xbox_apu
     xbox_kernel
     xbox_d3d8
+    "-Wl,--end-group"
     android
     aaudio
     EGL
@@ -110,11 +112,13 @@ if(MOH_BUILD_GENERATED_RECOMP)
         "${RECOMP_GEN_DIR}"
     )
     target_link_libraries(moh_android PRIVATE
+        "-Wl,--start-group"
         moh_generated_recomp_arm64
         xbox_kernel
         xbox_apu
         xbox_d3d8
         platform
+        "-Wl,--end-group"
     )
     target_compile_definitions(moh_android PRIVATE
         MOH_GENERATED_RECOMP_COMPILED=1
