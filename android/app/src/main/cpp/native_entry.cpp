@@ -254,6 +254,7 @@ void shutdownXboxRuntimeLocked() {
 
 void logGuestAddressDiagnostics(void (*entry)(void)) {
     char line[512];
+    const uintptr_t hostEntry = reinterpret_cast<uintptr_t>(entry);
     void *base = xbox_GetMemoryBase();
     const ptrdiff_t offset = xbox_GetMemoryOffset();
     snprintf(line, sizeof(line),
