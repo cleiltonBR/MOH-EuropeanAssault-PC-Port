@@ -171,11 +171,27 @@ class MainActivity : Activity(), SurfaceHolder.Callback {
             append("Runtime status: captured from local files; native runtime intentionally not queried.\n")
             append("\nRuntime log:\n")
             if (logFile.exists()) {
-                try { append(logFile.readText()) } catch (e: Exception) {
+                try {
+                    // Keep the Intent payload small: Android's Binder transaction
+                    // limit can reject a chooser carrying a very large accumulated log.
+                    val maxLogBytes = 48 * 1024L
+                    val length = logFile.length()
+                    val start = (length - maxLogBytes).coerceAtLeast(0L)
+                    java.io.RandomAccessFile(logFile, "r").use { input ->
+                        input.seek(start)
+                        val bytes = ByteArray((length - start).toInt())
+                        input.readFully(bytes)
+                        if (start > 0) append("[Earlier log content omitted; showing last 48 KiB.]\\n")
+                        append(String(bytes, Charsets.UTF_8))
+                    }
+                } catch (e: Exception) {
                     append("Could not read runtime log: ").append(e.message)
                 }
             } else append("No runtime log found.")
-            if (marker.exists()) append("\n\nCrash marker:\n").append(marker.readText())
+            if (marker.exists()) {
+                try { append("\\n\\nCrash marker:\\n").append(marker.readText().take(1024)) }
+                catch (e: Exception) { append("\\nCrash marker could not be read: ").append(e.message) }
+            }
         }
         val send = Intent(Intent.ACTION_SEND).apply {
             type = "text/plain"
