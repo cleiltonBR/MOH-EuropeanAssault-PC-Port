@@ -5,6 +5,7 @@ on:
     branches: [android-port]
     paths:
       - ".github/workflows/crash-source-audit.yml"
+      - "android/app/src/main/cpp/native_entry.cpp"
   workflow_dispatch:
 
 permissions:
