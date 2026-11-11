@@ -14,6 +14,7 @@
 #include <string>
 #include <mutex>
 #include <sys/stat.h>
+#include <sys/syscall.h>
 #include <cstdint>
 #include <fstream>
 #include <vector>
@@ -251,6 +252,30 @@ void fatalSignalHandler(int signalNumber, siginfo_t* info, void* rawContext) {
             close(fd);
         }
     }
+    /*
+     * Do not finish a fatal signal with _exit(128 + signalNumber): Android
+     * classifies that as REASON_EXIT_SELF and does not publish a native
+     * tombstone. The register snapshot above is already persisted, so restore
+     * the default disposition and re-deliver the same signal to this thread.
+     * This lets the kernel terminate the process as a real native crash and
+     * makes ApplicationExitInfo.traceInputStream available on Android 11+.
+     */
+    struct sigaction defaultAction{};
+    defaultAction.sa_handler = SIG_DFL;
+    sigemptyset(&defaultAction.sa_mask);
+    (void)sigaction(signalNumber, &defaultAction, nullptr);
+
+    sigset_t unblockSignal;
+    sigemptyset(&unblockSignal);
+    sigaddset(&unblockSignal, signalNumber);
+    (void)sigprocmask(SIG_UNBLOCK, &unblockSignal, nullptr);
+
+#if defined(SYS_tgkill) && defined(SYS_gettid)
+    (void)syscall(SYS_tgkill, getpid(), syscall(SYS_gettid), signalNumber);
+#else
+    (void)kill(getpid(), signalNumber);
+#endif
+    /* Defensive fallback: the default fatal disposition should not return. */
     _exit(128 + signalNumber);
 }
 void installCrashDiagnostics() {
