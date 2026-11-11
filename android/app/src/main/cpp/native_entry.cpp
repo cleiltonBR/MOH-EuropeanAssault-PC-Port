@@ -17,6 +17,11 @@
 #include <cstdint>
 #include <fstream>
 #include <vector>
+#include <csignal>
+#include <cstring>
+#include <unistd.h>
+#include <fcntl.h>
+#include <limits.h>
 
 extern "C" void (*recomp_lookup(uint32_t xbox_va))(void);
 /* The recompiler models x86 registers as thread-local state. MemoryLayoutInit
@@ -49,6 +54,49 @@ std::string g_runtime_status = "waiting for a valid XBE";
 bool g_memory_started = false;
 bool g_kernel_started = false;
 std::vector<uint8_t> g_xbe_image;
+
+char g_log_path[PATH_MAX] = {0};
+char g_crash_marker_path[PATH_MAX] = {0};
+void appendRuntimeLog(const char* message) {
+    if (!g_log_path[0] || !message) return;
+    int fd = open(g_log_path, O_WRONLY | O_CREAT | O_APPEND | O_CLOEXEC, 0600);
+    if (fd < 0) return;
+    (void)write(fd, message, strlen(message));
+    (void)write(fd, "\n", 1);
+    close(fd);
+}
+void fatalSignalHandler(int signalNumber, siginfo_t*, void*) {
+    if (g_log_path[0]) {
+        int fd = open(g_log_path, O_WRONLY | O_CREAT | O_APPEND | O_CLOEXEC, 0600);
+        if (fd >= 0) {
+            static const char prefix[] = "\nFATAL NATIVE SIGNAL: ";
+            (void)write(fd, prefix, sizeof(prefix) - 1);
+            char digits[16]; size_t count = 0;
+            unsigned int value = signalNumber < 0 ? 0u : (unsigned int)signalNumber;
+            do { digits[count++] = (char)('0' + (value % 10)); value /= 10; } while (value && count < sizeof(digits));
+            while (count) { char ch = digits[--count]; (void)write(fd, &ch, 1); }
+            (void)write(fd, "\n", 1);
+            close(fd);
+        }
+    }
+    if (g_crash_marker_path[0]) {
+        int marker = open(g_crash_marker_path, O_WRONLY | O_CREAT | O_TRUNC | O_CLOEXEC, 0600);
+        if (marker >= 0) { static const char crashed[] = "native-crash\n"; (void)write(marker, crashed, sizeof(crashed)-1); close(marker); }
+    }
+    _exit(128 + signalNumber);
+}
+void installCrashDiagnostics() {
+    struct sigaction action{};
+    action.sa_sigaction = fatalSignalHandler;
+    sigemptyset(&action.sa_mask);
+    action.sa_flags = SA_SIGINFO | SA_RESETHAND;
+    sigaction(SIGSEGV, &action, nullptr);
+    sigaction(SIGABRT, &action, nullptr);
+    sigaction(SIGBUS, &action, nullptr);
+    sigaction(SIGILL, &action, nullptr);
+    sigaction(SIGFPE, &action, nullptr);
+}
+
 
 uint32_t readLe32(const std::vector<uint8_t>& bytes, size_t offset) {
     return static_cast<uint32_t>(bytes[offset]) |
@@ -125,6 +173,7 @@ void initializeXboxRuntimeLocked() {
         return;
     }
 
+    appendRuntimeLog("Runtime: starting Xbox guest memory initialization");
     g_runtime_stage.store(1);
     g_runtime_status = "reserving the 4 GiB Xbox guest address window";
     /* Playbook ADR 0003: Android reserves the complete 32-bit guest VA range
@@ -146,12 +195,15 @@ void initializeXboxRuntimeLocked() {
         return;
     }
     g_memory_started = true;
+    appendRuntimeLog("Runtime: Xbox guest memory initialized");
     g_runtime_stage.store(2);
 
     const std::string save_dir = g_game_dir + "/../saves";
     xbox_path_init(g_game_dir.c_str(), save_dir.c_str());
+    appendRuntimeLog("Runtime: initializing Xbox kernel");
     xbox_kernel_init();
     g_kernel_started = true;
+    appendRuntimeLog("Runtime: Xbox kernel initialized");
     g_runtime_stage.store(3);
 
     xbox_kernel_get_thunk_address(&thunk_va, &thunk_count);
@@ -165,7 +217,9 @@ void initializeXboxRuntimeLocked() {
         return;
     }
 
+    appendRuntimeLog("Runtime: installing Xbox kernel thunk bridge");
     xbox_kernel_bridge_init();
+    appendRuntimeLog("Runtime: Xbox kernel thunk bridge installed");
     g_runtime_stage.store(4);
 #if defined(MOH_GENERATED_RECOMP_LINKED)
     if (!recomp_lookup(g_xbe_entry)) {
@@ -190,8 +244,10 @@ void initializeXboxRuntimeLocked() {
     }
     g_runtime_stage.store(5);
     g_runtime_status = "starting recompiled XBE entry point";
+    appendRuntimeLog("Runtime: calling generated XBE entry point");
     fflush(stdout);
     entry();
+    appendRuntimeLog("Runtime: generated XBE entry point returned");
     g_runtime_stage.store(6);
     g_runtime_status = "recompiled XBE entry point returned";
 #else
@@ -238,13 +294,9 @@ void renderLoop(ANativeWindow* window) {
     eglQuerySurface(display, surface, EGL_HEIGHT, &height);
     d3d8_android_set_egl_surface(display, surface, width, height);
 
-    /* Guest kernel identity and the GLES context now share this render thread.
-     * This is the only safe thread on which to enter the translated game. */
-    {
-        std::lock_guard<std::mutex> lock(g_game_dir_mutex);
-        initializeXboxRuntimeLocked();
-    }
-    g_runtime_init_requested.store(false);
+    /* Never auto-run imported guest code on process startup. The user must
+     * explicitly request a start after import or after exporting crash logs. */
+    appendRuntimeLog("Renderer: EGL context ready; waiting for explicit game start");
     g_stage.store(4);
     g_stage.store(5);
     IDirect3D8* d3d = xbox_Direct3DCreate8(0);
@@ -261,6 +313,7 @@ void renderLoop(ANativeWindow* window) {
         g_stage.store(6);
         while (g_running.load()) {
             if (g_runtime_init_requested.exchange(false)) {
+                appendRuntimeLog("UI: explicit game start requested");
                 std::lock_guard<std::mutex> lock(g_game_dir_mutex);
                 shutdownXboxRuntimeLocked();
                 initializeXboxRuntimeLocked();
@@ -315,7 +368,27 @@ Java_com_cleiltonbr_moheuropeanassault_MainActivity_nativeSetGameDirectory(
         }
     }
     if (chars) env->ReleaseStringUTFChars(path, chars);
+    g_runtime_init_requested.store(false);
+    appendRuntimeLog("Import: game directory selected and XBE inspected");
+}
+
+extern "C" JNIEXPORT void JNICALL
+Java_com_cleiltonbr_moheuropeanassault_MainActivity_nativeConfigureLogging(
+    JNIEnv* env, jobject, jstring directory) {
+    const char* chars = directory ? env->GetStringUTFChars(directory, nullptr) : nullptr;
+    if (chars) {
+        snprintf(g_log_path, sizeof(g_log_path), "%s/moh-runtime.log", chars);
+        snprintf(g_crash_marker_path, sizeof(g_crash_marker_path), "%s/moh-crash.marker", chars);
+        env->ReleaseStringUTFChars(directory, chars);
+        installCrashDiagnostics();
+        appendRuntimeLog("Diagnostics: native crash handlers installed");
+    }
+}
+
+extern "C" JNIEXPORT void JNICALL
+Java_com_cleiltonbr_moheuropeanassault_MainActivity_nativeRequestGameStart(JNIEnv*, jobject) {
     g_runtime_init_requested.store(true);
+    appendRuntimeLog("UI: game start requested");
 }
 
 extern "C" JNIEXPORT jstring JNICALL
