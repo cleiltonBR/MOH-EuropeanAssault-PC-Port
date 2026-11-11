@@ -30,9 +30,16 @@ extern "C" void (*recomp_lookup(uint32_t xbox_va))(void);
 /* The recompiler models x86 registers as thread-local state. MemoryLayoutInit
  * initializes ESP to XBOX_STACK_TOP on this render/guest thread. */
 #if defined(__GNUC__) || defined(__clang__)
-extern __thread uint32_t g_esp;
+extern __thread uint32_t g_esp, g_eax, g_ecx, g_edx;
+extern __thread uint32_t g_ebx, g_esi, g_edi;
 #else
-extern uint32_t g_esp;
+extern uint32_t g_esp, g_eax, g_ecx, g_edx;
+extern uint32_t g_ebx, g_esi, g_edi;
+#endif
+#if defined(MOH_GENERATED_RECOMP_LINKED)
+extern volatile uint32_t g_icall_trace[16];
+extern volatile uint32_t g_icall_trace_idx;
+extern volatile uint64_t g_icall_count;
 #endif
 extern "C" int moh_android_is_foreground(void);
 
@@ -245,6 +252,41 @@ void fatalSignalHandler(int signalNumber, siginfo_t* info, void* rawContext) {
                  * mapped; a second SIGSEGV here destroys the original report. */
                 static const char stackNote[] = " stack_words=(not-read; unsafe in signal handler)";
                 (void)write(fd, stackNote, sizeof(stackNote) - 1);
+#if defined(MOH_GENERATED_RECOMP_LINKED)
+                static const char guestPrefix[] = " guest_x86{eax=0x";
+                static const char ecxPrefix[] = " ecx=0x";
+                static const char edxPrefix[] = " edx=0x";
+                static const char ebxPrefix[] = " ebx=0x";
+                static const char esiPrefix[] = " esi=0x";
+                static const char ediPrefix[] = " edi=0x";
+                static const char espPrefix[] = " esp=0x";
+                static const char tracePrefix[] = " icall_count=0x";
+                (void)write(fd, guestPrefix, sizeof(guestPrefix) - 1);
+                writeHexValue(fd, g_eax);
+                (void)write(fd, ecxPrefix, sizeof(ecxPrefix) - 1);
+                writeHexValue(fd, g_ecx);
+                (void)write(fd, edxPrefix, sizeof(edxPrefix) - 1);
+                writeHexValue(fd, g_edx);
+                (void)write(fd, ebxPrefix, sizeof(ebxPrefix) - 1);
+                writeHexValue(fd, g_ebx);
+                (void)write(fd, esiPrefix, sizeof(esiPrefix) - 1);
+                writeHexValue(fd, g_esi);
+                (void)write(fd, ediPrefix, sizeof(ediPrefix) - 1);
+                writeHexValue(fd, g_edi);
+                (void)write(fd, espPrefix, sizeof(espPrefix) - 1);
+                writeHexValue(fd, g_esp);
+                (void)write(fd, tracePrefix, sizeof(tracePrefix) - 1);
+                writeHexValue(fd, g_icall_count);
+                const uint32_t traceEnd = g_icall_trace_idx;
+                for (uint32_t i = 0; i < 16; ++i) {
+                    const uint32_t target = g_icall_trace[(traceEnd - 1u - i) & 15u];
+                    static const char targetPrefix[] = " icall=0x";
+                    (void)write(fd, targetPrefix, sizeof(targetPrefix) - 1);
+                    writeHexValue(fd, target);
+                }
+                static const char guestEnd[] = "}";
+                (void)write(fd, guestEnd, sizeof(guestEnd) - 1);
+#endif
             }
 #endif
             (void)write(fd, "\n", 1);
@@ -253,30 +295,17 @@ void fatalSignalHandler(int signalNumber, siginfo_t* info, void* rawContext) {
         }
     }
     /*
-     * Do not finish a fatal signal with _exit(128 + signalNumber): Android
-     * classifies that as REASON_EXIT_SELF and does not publish a native
-     * tombstone. The register snapshot above is already persisted, so restore
-     * the default disposition and re-deliver the same signal to this thread.
-     * This lets the kernel terminate the process as a real native crash and
-     * makes ApplicationExitInfo.traceInputStream available on Android 11+.
+     * SA_RESETHAND has already restored SIG_DFL for this signal. Return to
+     * the interrupted instruction without changing its context: a synchronous
+     * fault is raised again on sigreturn and the kernel applies the default
+     * fatal disposition. This avoids _exit(139), which Android classifies as
+     * REASON_EXIT_SELF and for which it omits the native tombstone.
      */
     struct sigaction defaultAction{};
     defaultAction.sa_handler = SIG_DFL;
     sigemptyset(&defaultAction.sa_mask);
     (void)sigaction(signalNumber, &defaultAction, nullptr);
-
-    sigset_t unblockSignal;
-    sigemptyset(&unblockSignal);
-    sigaddset(&unblockSignal, signalNumber);
-    (void)sigprocmask(SIG_UNBLOCK, &unblockSignal, nullptr);
-
-#if defined(SYS_tgkill) && defined(SYS_gettid)
-    (void)syscall(SYS_tgkill, getpid(), syscall(SYS_gettid), signalNumber);
-#else
-    (void)kill(getpid(), signalNumber);
-#endif
-    /* Defensive fallback: the default fatal disposition should not return. */
-    _exit(128 + signalNumber);
+    return;
 }
 void installCrashDiagnostics() {
     struct sigaction action{};
