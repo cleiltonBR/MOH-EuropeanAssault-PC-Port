@@ -77,15 +77,6 @@ void writeHexValue(int fd, uintptr_t value) {
 
 void appendRuntimeLog(const char* message);
 
-void appendProcessMaps() {
-    std::ifstream maps("/proc/self/maps");
-    if (!maps) { appendRuntimeLog("Diagnostics: could not read /proc/self/maps"); return; }
-    appendRuntimeLog("Diagnostics: begin /proc/self/maps");
-    std::string line;
-    while (std::getline(maps, line)) appendRuntimeLog(line.c_str());
-    appendRuntimeLog("Diagnostics: end /proc/self/maps");
-}
-
 void appendGuestLayoutDiagnostics(void (*entry)(void)) {
     char message[512];
     const uintptr_t hostEntry = reinterpret_cast<uintptr_t>(entry);
@@ -108,7 +99,6 @@ void appendGuestLayoutDiagnostics(void (*entry)(void)) {
         g_xbox_stack_base + g_xbox_stack_size, g_xbox_stack_size, g_esp,
         static_cast<long long>(xbox_GetMemoryOffset()), xbox_GetMappedSize());
     appendRuntimeLog(message);
-    appendProcessMaps();
 }
 
 void appendRuntimeLog(const char* message) {
