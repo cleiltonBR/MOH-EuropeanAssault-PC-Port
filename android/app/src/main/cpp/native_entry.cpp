@@ -161,6 +161,18 @@ void fatalSignalHandler(int signalNumber, siginfo_t* info, void* rawContext) {
                 static const char x15Prefix[] = " x15=0x";
                 static const char x16Prefix[] = " x16=0x";
                 static const char x17Prefix[] = " x17=0x";
+                static const char x18Prefix[] = " x18=0x";
+                static const char x19Prefix[] = " x19=0x";
+                static const char x20Prefix[] = " x20=0x";
+                static const char x21Prefix[] = " x21=0x";
+                static const char x22Prefix[] = " x22=0x";
+                static const char x23Prefix[] = " x23=0x";
+                static const char x24Prefix[] = " x24=0x";
+                static const char x25Prefix[] = " x25=0x";
+                static const char x26Prefix[] = " x26=0x";
+                static const char x27Prefix[] = " x27=0x";
+                static const char x28Prefix[] = " x28=0x";
+                static const char x29Prefix[] = " x29=0x";
                 (void)write(fd, pcPrefix, sizeof(pcPrefix) - 1);
                 writeHexValue(fd, (uintptr_t)context->uc_mcontext.pc);
                 (void)write(fd, spPrefix, sizeof(spPrefix) - 1);
@@ -203,6 +215,37 @@ void fatalSignalHandler(int signalNumber, siginfo_t* info, void* rawContext) {
                 writeHexValue(fd, (uintptr_t)context->uc_mcontext.regs[16]);
                 (void)write(fd, x17Prefix, sizeof(x17Prefix) - 1);
                 writeHexValue(fd, (uintptr_t)context->uc_mcontext.regs[17]);
+                (void)write(fd, x18Prefix, sizeof(x18Prefix) - 1);
+                writeHexValue(fd, (uintptr_t)context->uc_mcontext.regs[18]);
+                (void)write(fd, x19Prefix, sizeof(x19Prefix) - 1);
+                writeHexValue(fd, (uintptr_t)context->uc_mcontext.regs[19]);
+                (void)write(fd, x20Prefix, sizeof(x20Prefix) - 1);
+                writeHexValue(fd, (uintptr_t)context->uc_mcontext.regs[20]);
+                (void)write(fd, x21Prefix, sizeof(x21Prefix) - 1);
+                writeHexValue(fd, (uintptr_t)context->uc_mcontext.regs[21]);
+                (void)write(fd, x22Prefix, sizeof(x22Prefix) - 1);
+                writeHexValue(fd, (uintptr_t)context->uc_mcontext.regs[22]);
+                (void)write(fd, x23Prefix, sizeof(x23Prefix) - 1);
+                writeHexValue(fd, (uintptr_t)context->uc_mcontext.regs[23]);
+                (void)write(fd, x24Prefix, sizeof(x24Prefix) - 1);
+                writeHexValue(fd, (uintptr_t)context->uc_mcontext.regs[24]);
+                (void)write(fd, x25Prefix, sizeof(x25Prefix) - 1);
+                writeHexValue(fd, (uintptr_t)context->uc_mcontext.regs[25]);
+                (void)write(fd, x26Prefix, sizeof(x26Prefix) - 1);
+                writeHexValue(fd, (uintptr_t)context->uc_mcontext.regs[26]);
+                (void)write(fd, x27Prefix, sizeof(x27Prefix) - 1);
+                writeHexValue(fd, (uintptr_t)context->uc_mcontext.regs[27]);
+                (void)write(fd, x28Prefix, sizeof(x28Prefix) - 1);
+                writeHexValue(fd, (uintptr_t)context->uc_mcontext.regs[28]);
+                (void)write(fd, x29Prefix, sizeof(x29Prefix) - 1);
+                writeHexValue(fd, (uintptr_t)context->uc_mcontext.regs[29]);
+                static const char stackPrefix[] = " stack_words=";
+                (void)write(fd, stackPrefix, sizeof(stackPrefix) - 1);
+                const volatile uintptr_t* stack = reinterpret_cast<const volatile uintptr_t*>(context->uc_mcontext.sp);
+                for (int i = 0; i < 16; ++i) {
+                    if (i) (void)write(fd, ",", 1);
+                    writeHexValue(fd, stack[i]);
+                }
             }
 #endif
             (void)write(fd, "\n", 1);
