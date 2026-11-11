@@ -121,23 +121,15 @@ jobs:
                   for line in p.stdout.splitlines():
                       if any(x in line.lower() for x in ("error:", "fatal error:", "undefined reference", "no such file")):
                           out.write("  " + line[:500] + "\\n")
-          commands = subprocess.run(["ninja", "-C", str(build), "-t", "commands", "libmoh_android.so"],
-                                    text=True, stdout=subprocess.PIPE, stderr=subprocess.DEVNULL)
-          link_commands = [line for line in commands.stdout.splitlines()
-                           if " -o libmoh_android.so " in line or line.rstrip().endswith("libmoh_android.so")]
-          if not link_commands:
-              with report.open("a") as out:
-                  out.write("libmoh_android.so link command not found\\n")
-          else:
-              p = subprocess.run(link_commands[-1], cwd=build, shell=True, text=True,
-                                 stdout=subprocess.PIPE, stderr=subprocess.STDOUT)
-              with report.open("a") as out:
-                  out.write(f"libmoh_android.so link exit={p.returncode}\\n")
-                  for line in p.stdout.splitlines():
-                      low = line.lower()
-                      if any(x in low for x in ("undefined symbol", "undefined reference", "multiple definition",
-                                                "cannot find", "error:", "ld.lld:", "clang++:")):
-                          out.write("  " + line[:500] + "\\n")
+          p = subprocess.run(["cmake", "--build", str(build), "--target", "moh_android", "--parallel", "2"],
+                             text=True, stdout=subprocess.PIPE, stderr=subprocess.STDOUT)
+          with report.open("a") as out:
+              out.write(f"moh_android target build/link exit={p.returncode}\\n")
+              for line in p.stdout.splitlines():
+                  low = line.lower()
+                  if any(x in low for x in ("undefined symbol", "undefined reference", "multiple definition",
+                                            "cannot find", "error:", "ld.lld:", "clang++:", "ninja: build stopped")):
+                      out.write("  " + line[:500] + "\\n")
           PY
           done
           for ARCHIVE in android/app/.cxx/Debug/*/arm64-v8a/*.a; do
