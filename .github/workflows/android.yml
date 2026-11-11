@@ -58,6 +58,55 @@ jobs:
           echo "RECOMP_GEN_DIR=$GEN_DIR" >> "$GITHUB_ENV"
           echo "RECOMP_ROOT_DIR=$(dirname "$DISPATCH_FILE")" >> "$GITHUB_ENV"
 
+      - name: Audit generated calls that may pass raw Xbox pointers to libc
+        shell: bash
+        run: |
+          python3 - "$RECOMP_ROOT_DIR" "$RUNNER_TEMP/raw-pointer-call-audit.txt" <<'PY'
+          import pathlib, re, sys
+          root = pathlib.Path(sys.argv[1])
+          out = pathlib.Path(sys.argv[2])
+          apis = {
+              "memcpy", "memmove", "memset", "memcmp", "memchr",
+              "strlen", "strnlen", "strcpy", "strncpy", "strcat",
+              "strncat", "strcmp", "strncmp", "strchr", "strrchr",
+              "strstr", "strtok", "sprintf", "snprintf", "vsprintf",
+              "vsnprintf", "sscanf", "fputs", "puts", "printf",
+              "fprintf", "vfprintf"
+          }
+          call_re = re.compile(r"\\b(" + "|".join(sorted(apis, key=len, reverse=True)) + r")\\s*\\(")
+          ptr_re = re.compile(r"(?:g_(?:eax|ecx|edx|ebx|esi|edi|esp|ebp)|\\b[a-zA-Z_]\\w*(?:_va|_ptr|_addr|_buffer|_buf)\\b|\\(\\s*(?:const\\s+)?(?:void|char|uint8_t|uint16_t|uint32_t|uintptr_t)\\s*\\*|\\bMEM(?:8|16|32|64)\\s*\\()")
+          translated_re = re.compile(r"XBOX_PTR|g_xbox_mem_offset|\\b_mo\\b")
+          rows = []
+          for path in sorted(root.rglob("*")):
+              if path.suffix.lower() not in {".c", ".h", ".cc", ".cpp", ".hpp"}:
+                  continue
+              try:
+                  lines = path.read_text(errors="ignore").splitlines()
+              except OSError:
+                  continue
+              for n, line in enumerate(lines, 1):
+                  for m in call_re.finditer(line):
+                      # Keep only likely guest-pointer arguments and exclude
+                      # explicit guest-to-host translations in the same call.
+                      tail = line[m.end():]
+                      arg = tail.split(",", 1)[0].split(")", 1)[0]
+                      if ptr_re.search(arg) and not translated_re.search(arg):
+                          rows.append(f"{path.relative_to(root)}:{n}: {m.group(1)}: first argument resembles an unconverted guest pointer")
+          out.write_text("\\n".join(rows) + ("\\n" if rows else "No obvious raw guest-pointer libc callsites found.\\n"))
+          print(f"Raw-pointer libc callsite candidates: {len(rows)}")
+          print(out.read_text())
+          PY
+          mkdir -p android/raw-pointer-call-audit
+          cp "$RUNNER_TEMP/raw-pointer-call-audit.txt" android/raw-pointer-call-audit/candidates.txt
+
+      - name: Upload raw-pointer callsite audit
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: moh-raw-pointer-callsite-audit
+          path: android/raw-pointer-call-audit/candidates.txt
+          if-no-files-found: ignore
+
       - name: Set up JDK 17
         uses: actions/setup-java@v4
         with:
