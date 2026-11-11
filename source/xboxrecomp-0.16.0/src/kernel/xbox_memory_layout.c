@@ -2880,15 +2880,25 @@ volatile uint32_t g_icall_trace[16] = {0};
 volatile uint32_t g_icall_trace_idx = 0;
 volatile uint64_t g_icall_count = 0;
 
+static char g_memory_init_error[256];
+
+const char *xbox_MemoryLayoutLastError(void)
+{
+    return g_memory_init_error;
+}
+
 static void xbox_heap_reset_base(void);
 
 BOOL xbox_MemoryLayoutInit(const void *xbe_data, size_t xbe_size)
 {
     g_force_return = getenv("RECOMP_FORCE_RETURN") != NULL;
+    g_memory_init_error[0] = '\0';
     DWORD old_protect;
     const uint8_t *xbe = (const uint8_t *)xbe_data;
 
     if (g_memory_base) {
+        snprintf(g_memory_init_error, sizeof(g_memory_init_error),
+                 "Xbox memory initialization failed: layout is already initialized");
         fprintf(stderr, "xbox_MemoryLayoutInit: already initialized\n");
         return FALSE;
     }
@@ -2926,8 +2936,12 @@ BOOL xbox_MemoryLayoutInit(const void *xbe_data, size_t xbe_size)
         NULL                    /* unnamed mapping */
     );
     if (!g_mapping_handle) {
+        DWORD error = GetLastError();
+        snprintf(g_memory_init_error, sizeof(g_memory_init_error),
+                 "Xbox memory initialization failed: backing memory creation failed (host error %lu)",
+                 (unsigned long)error);
         fprintf(stderr, "xbox_MemoryLayoutInit: CreateFileMapping failed (error %lu)\n",
-                GetLastError());
+                error);
         return FALSE;
     }
 
@@ -3037,8 +3051,12 @@ BOOL xbox_MemoryLayoutInit(const void *xbe_data, size_t xbe_size)
     }
 
     if (!g_memory_base) {
-        fprintf(stderr, "xbox_MemoryLayoutInit: failed to map base view (%zu KB)\n",
-                g_memory_size / 1024);
+        DWORD error = GetLastError();
+        snprintf(g_memory_init_error, sizeof(g_memory_init_error),
+                 "Xbox memory initialization failed: could not map the %zu KB guest RAM view (host error %lu)",
+                 g_memory_size / 1024, (unsigned long)error);
+        fprintf(stderr, "xbox_MemoryLayoutInit: failed to map base view (%zu KB, error %lu)\n",
+                g_memory_size / 1024, error);
         CloseHandle(g_mapping_handle);
         g_mapping_handle = NULL;
         return FALSE;
@@ -3287,6 +3305,9 @@ BOOL xbox_MemoryLayoutInit(const void *xbe_data, size_t xbe_size)
         uint32_t stack_size = 8 * MB;
 
         if (avail < 2 * MB) {
+            snprintf(g_memory_init_error, sizeof(g_memory_init_error),
+                     "Xbox memory initialization failed: XBE sections end at 0x%08X; toolkit region 0x%08X leaves only %u KB before RAM limit 0x%08X (minimum 2048 KB required)",
+                     g_xbox_image_hi, region, avail / 1024, top);
             fprintf(stderr,
                     "  ERROR: the title image ends at 0x%08X; with the toolkit "
                     "region at 0x%08X that leaves %u KB below the end of RAM "
