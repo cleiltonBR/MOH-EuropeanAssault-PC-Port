@@ -14,6 +14,23 @@ add_subdirectory(
     "${XBOXRECOMP_APU_DIR}"
     "${CMAKE_CURRENT_BINARY_DIR}/xboxrecomp-apu")
 
+# Android uses the shared input state and the Xbox USB OHCI model without
+# pulling in the desktop SDL window/event loop.
+get_filename_component(XBOXRECOMP_INPUT_DIR "${XBOXRECOMP_PLATFORM_DIR}/../input" ABSOLUTE)
+add_subdirectory(
+    "${XBOXRECOMP_INPUT_DIR}"
+    "${CMAKE_CURRENT_BINARY_DIR}/xboxrecomp-input")
+
+get_filename_component(XBOXRECOMP_NV2A_DIR "${XBOXRECOMP_PLATFORM_DIR}/../nv2a" ABSOLUTE)
+add_subdirectory(
+    "${XBOXRECOMP_NV2A_DIR}"
+    "${CMAKE_CURRENT_BINARY_DIR}/xboxrecomp-nv2a")
+
+get_filename_component(XBOXRECOMP_USB_DIR "${XBOXRECOMP_PLATFORM_DIR}/../usb" ABSOLUTE)
+add_subdirectory(
+    "${XBOXRECOMP_USB_DIR}"
+    "${CMAKE_CURRENT_BINARY_DIR}/xboxrecomp-usb")
+
 get_filename_component(XBOXRECOMP_KERNEL_DIR "${XBOXRECOMP_PLATFORM_DIR}/../kernel" ABSOLUTE)
 add_subdirectory(
     "${XBOXRECOMP_KERNEL_DIR}"
@@ -23,6 +40,11 @@ get_filename_component(XBOXRECOMP_D3D_DIR "${XBOXRECOMP_PLATFORM_DIR}/../d3d" AB
 add_subdirectory(
     "${XBOXRECOMP_D3D_DIR}"
     "${CMAKE_CURRENT_BINARY_DIR}/xboxrecomp-d3d")
+
+get_filename_component(XBOXRECOMP_VIDEO_DIR "${XBOXRECOMP_PLATFORM_DIR}/../video" ABSOLUTE)
+add_subdirectory(
+    "${XBOXRECOMP_VIDEO_DIR}"
+    "${CMAKE_CURRENT_BINARY_DIR}/xboxrecomp-video")
 
 add_library(moh_android SHARED native_entry.cpp)
 target_compile_features(moh_android PRIVATE cxx_std_17)
@@ -36,6 +58,10 @@ target_link_libraries(moh_android PRIVATE
     xbox_apu
     xbox_kernel
     xbox_d3d8
+    xbox_input
+    xbox_usb
+    xbox_nv2a
+    xbox_video
     "-Wl,--end-group"
     android
     aaudio
