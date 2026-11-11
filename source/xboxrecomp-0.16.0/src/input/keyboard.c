@@ -21,6 +21,10 @@
 #include <stdlib.h>
 #include <string.h>
 
+/* Shared fog adjustment state consumed by nv2a_pb_exec.c. Windows MKB
+ * hotkeys update it; Android keeps the same state for native input bindings. */
+volatile long g_mkb_fog_steps = 0;
+
 /* Reading this needs no lock. Each entry is written only by the window's
  * thread and read only by the game's poll, one byte at a time, and a press
  * seen a poll late is indistinguishable from one made a poll later. */
