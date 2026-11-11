@@ -133,7 +133,9 @@ void initializeXboxRuntimeLocked() {
     if (!xbox_MemoryLayoutInit(g_xbe_image.data(), g_xbe_image.size())) {
         xbox_MemoryLayoutShutdown();
         g_runtime_stage.store(-1);
-        g_runtime_status = "Xbox guest memory initialization failed";
+        const char* memoryError = xbox_MemoryLayoutLastError();
+        g_runtime_status = (memoryError && memoryError[0])
+            ? memoryError : "Xbox guest memory initialization failed (no host diagnostic)";
         return;
     }
     g_memory_started = true;
