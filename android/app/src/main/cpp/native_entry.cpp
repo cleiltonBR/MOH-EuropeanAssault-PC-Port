@@ -281,8 +281,9 @@ void logGuestAddressDiagnostics(void (*entry)(void)) {
      * stays async-signal-safe; the host PC from a later crash can be resolved
      * against this snapshot without calling dladdr from inside the handler. */
     std::ifstream maps("/proc/self/maps");
-    while (std::getline(maps, line))
-        appendRuntimeLog(line);
+    std::string mapLine;
+    while (std::getline(maps, mapLine))
+        appendRuntimeLog(mapLine.c_str());
 }
 
 void initializeXboxRuntimeLocked() {
