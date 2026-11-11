@@ -286,6 +286,50 @@ DWORD xbox_InputGetCapabilities(DWORD dwPort, DWORD dwFlags, XBOX_INPUT_CAPABILI
 }
 
 /* ======================================================================== */
+#elif defined(__ANDROID__)
+/* Android input is injected into the shared virtual-key table by the native
+ * activity. Until a host-controller provider is attached, do not pretend a
+ * physical gamepad is connected. */
+static DWORD g_android_packet[XBOX_MAX_CONTROLLERS];
+
+void xbox_InputSetMainPump(int on) { (void)on; }
+int xbox_InputAnyOpen(void) { return 0; }
+void xbox_InputInit(void) {}
+
+DWORD xbox_InputGetState(DWORD dwPort, XBOX_INPUT_STATE *pState)
+{
+    if (dwPort >= XBOX_MAX_CONTROLLERS || !pState)
+        return ERROR_DEVICE_NOT_CONNECTED;
+    if (dwPort == 0 && xbox_InputKeyboardPoll(pState))
+        return ERROR_SUCCESS;
+    memset(pState, 0, sizeof(*pState));
+    pState->dwPacketNumber = ++g_android_packet[dwPort];
+    return ERROR_DEVICE_NOT_CONNECTED;
+}
+
+DWORD xbox_InputSetState(DWORD dwPort, const XBOX_VIBRATION *pVibration)
+{
+    (void)dwPort;
+    (void)pVibration;
+    return ERROR_DEVICE_NOT_CONNECTED;
+}
+
+BOOL xbox_InputIsConnected(DWORD dwPort)
+{
+    (void)dwPort;
+    return FALSE;
+}
+
+DWORD xbox_InputGetCapabilities(DWORD dwPort, DWORD dwFlags,
+                                XBOX_INPUT_CAPABILITIES *pCaps)
+{
+    (void)dwPort;
+    (void)dwFlags;
+    if (pCaps)
+        memset(pCaps, 0, sizeof(*pCaps));
+    return ERROR_DEVICE_NOT_CONNECTED;
+}
+
 #else /* !_WIN32 */
 /* ====================  SDL2 GameController backend  ===================== */
 /* ======================================================================== */
