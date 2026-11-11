@@ -277,13 +277,23 @@ void logGuestAddressDiagnostics(void (*entry)(void)) {
             reinterpret_cast<void*>(entry));
         appendRuntimeLog(line);
     }
-    /* Save the process map before entering generated code. The signal handler
-     * stays async-signal-safe; the host PC from a later crash can be resolved
-     * against this snapshot without calling dladdr from inside the handler. */
+    /* Keep only mappings relevant to the guest fault address and generated
+     * dispatcher. Dumping all of /proc/self/maps can consume the log and hide
+     * the fatal-signal record that is needed to diagnose the crash. */
+    constexpr uintptr_t guestFaultProbe = 0x00F7FC04u;
     std::ifstream maps("/proc/self/maps");
     std::string mapLine;
-    while (std::getline(maps, mapLine))
-        appendRuntimeLog(mapLine.c_str());
+    while (std::getline(maps, mapLine)) {
+        unsigned long long mapStart = 0, mapEnd = 0;
+        if (sscanf(mapLine.c_str(), "%llx-%llx", &mapStart, &mapEnd) != 2)
+            continue;
+        const bool containsGuestProbe =
+            guestFaultProbe >= mapStart && guestFaultProbe < mapEnd;
+        const bool containsDispatcher =
+            hostEntry >= mapStart && hostEntry < mapEnd;
+        if (containsGuestProbe || containsDispatcher)
+            appendRuntimeLog(mapLine.c_str());
+    }
 }
 
 void initializeXboxRuntimeLocked() {
