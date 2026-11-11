@@ -107,6 +107,37 @@ int main(void)
     check(a == at, "the address can be allocated again after VirtualFree");
     if (a) VirtualFree(a, 0, MEM_RELEASE);
 
+    /* 5. Partial release from a large guest-window reservation. The Xbox
+     *    memory layout reserves a large PROT_NONE span, then carves RAM,
+     *    mirrors and device windows out of it. Releasing the first slice must
+     *    preserve the remaining reservation, and interior slices must remain
+     *    releasable after the registry entry has moved forward. */
+    {
+        const size_t page = (size_t)sysconf(_SC_PAGESIZE);
+        const size_t span_len = 16 * page;
+        unsigned char *span = VirtualAlloc(NULL, span_len, MEM_RESERVE, PAGE_NOACCESS);
+        check(span != NULL, "VirtualAlloc reserves a guest-window span");
+        if (span) {
+            check(VirtualFree(span, 4 * page, MEM_RELEASE),
+                  "VirtualFree releases the first slice of a reserved span");
+            unsigned char *first = MapViewOfFileEx(
+                map, FILE_MAP_ALL_ACCESS, 0, 0, 4 * page, span);
+            check(first == span, "a file view replaces the released first slice");
+
+            unsigned char *middle_addr = span + 8 * page;
+            check(VirtualFree(middle_addr, 4 * page, MEM_RELEASE),
+                  "VirtualFree releases an interior slice after the first release");
+            unsigned char *middle = MapViewOfFileEx(
+                map, FILE_MAP_ALL_ACCESS, 0, 0, 4 * page, middle_addr);
+            check(middle == middle_addr, "a file view replaces the released interior slice");
+
+            if (first) UnmapViewOfFile(first);
+            if (middle) UnmapViewOfFile(middle);
+            check(VirtualFree(span, span_len, MEM_RELEASE),
+                  "VirtualFree cleans up the remaining fragmented guest span");
+        }
+    }
+
     CloseHandle(map);
 
     printf("\n%d failure(s)\n", failures);
