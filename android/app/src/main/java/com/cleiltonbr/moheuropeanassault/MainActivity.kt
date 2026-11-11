@@ -224,7 +224,7 @@ class MainActivity : Activity(), SurfaceHolder.Callback {
                         input.readFully(bytes)
                         String(bytes, Charsets.UTF_8)
                     }
-                    if (startOffset > 0) append("[Earlier log content omitted; showing last 48 KiB.]\\n")
+                    if (startOffset > 0) append("[Earlier log content omitted; showing last 48 KiB.]\n")
                     tail.lineSequence()
                         .filter { line ->
                             val trimmed = line.trim()
@@ -232,13 +232,13 @@ class MainActivity : Activity(), SurfaceHolder.Callback {
                                 trimmed != "CRASH MAP SNAPSHOT BEGIN" &&
                                 trimmed != "CRASH MAP SNAPSHOT END"
                         }
-                        .forEach { append(it).append('\\n') }
+                        .forEach { append(it).append('\n') }
 
-                    append("\\nRelevant crash memory mappings (scanned from the complete log):\\n")
+                    append("\nRelevant crash memory mappings (scanned from the complete log):\n")
                     if (selectedMaps.isEmpty()) {
-                        append("No mapping contained fault_addr, PC, SP or LR.\\n")
+                        append("No mapping contained fault_addr, PC, SP or LR.\n")
                     } else {
-                        selectedMaps.forEach { append(it).append('\\n') }
+                        selectedMaps.forEach { append(it).append('\n') }
                     }
                 } catch (e: Exception) {
                     append("Could not read runtime log: ").append(e.message)
