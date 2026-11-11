@@ -43,6 +43,8 @@ class MainActivity : Activity(), SurfaceHolder.Callback {
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
+        // Capture Android's native tombstone before starting a fresh native session.
+        captureHistoricalExitInfo()
         System.loadLibrary("moh_android")
         // Preserve the previous process diagnostics before starting a fresh log.
         // A native crash kills the process; the user must relaunch the app to share it.
@@ -177,14 +179,14 @@ class MainActivity : Activity(), SurfaceHolder.Callback {
         val output = File(filesDir, "moh-exit-info-previous.txt")
         try {
             if (Build.VERSION.SDK_INT < Build.VERSION_CODES.R) {
-                output.writeText("Historical process exit reasons require Android 11 (API 30) or newer.\\n")
+                output.writeText("Historical process exit reasons require Android 11 (API 30) or newer.\n")
                 return
             }
             val manager = getSystemService(ACTIVITY_SERVICE) as ActivityManager
             val exits = manager.getHistoricalProcessExitReasons(packageName, 0, 5)
             output.writeText(buildString {
-                append("Android historical process exit information (newest first)\\n")
-                if (exits.isEmpty()) append("Android returned no historical exit records.\\n")
+                append("Android historical process exit information (newest first)\n")
+                if (exits.isEmpty()) append("Android returned no historical exit records.\n")
                 exits.forEachIndexed { index, info ->
                     append("#").append(index + 1)
                         .append(" timestamp=").append(info.timestamp)
@@ -195,8 +197,27 @@ class MainActivity : Activity(), SurfaceHolder.Callback {
                         .append(" process=").append(info.processName)
                         .append(" pss_kb=").append(info.pss)
                         .append(" rss_kb=").append(info.rss)
-                        .append("\\n description=").append(info.description ?: "(none)")
+                        .append("\n description=").append(info.description ?: "(none)")
                         .append('\n')
+                    // This stream is supplied by Android's crash reporter and is
+                    // independent of the in-process signal handler and app log.
+                    val trace = info.traceInputStream
+                    if (trace != null) {
+                        append("--- native exit trace #").append(index + 1).append(" ---\n")
+                        trace.use { input ->
+                            val buffer = ByteArray(8192)
+                            var remaining = 256 * 1024
+                            while (remaining > 0) {
+                                val count = input.read(buffer, 0, minOf(buffer.size, remaining))
+                                if (count <= 0) break
+                                append(String(buffer, 0, count, Charsets.UTF_8))
+                                remaining -= count
+                            }
+                            append("\n--- end native exit trace ---\n")
+                        }
+                    } else {
+                        append("No Android tombstone trace stream was provided.\n")
+                    }
                 }
             })
         } catch (e: Exception) {
@@ -224,6 +245,12 @@ class MainActivity : Activity(), SurfaceHolder.Callback {
             append("Current session crash marker present: ").append(marker.exists()).append("\n")
             append("Previous session crash marker preserved: ").append(previousMarker.exists()).append("\n\n")
             append("Runtime status: captured from local files; native runtime intentionally not queried.\n")
+            val exitInfoFile = File(filesDir, "moh-exit-info-previous.txt")
+            if (exitInfoFile.isFile) {
+                append("\n\nANDROID HISTORICAL PROCESS EXIT INFO / NATIVE TRACE:\n")
+                try { append(exitInfoFile.readText().take(256 * 1024)) }
+                catch (e: Exception) { append("Could not read Android exit info: ").append(e.message) }
+            }
             append("\nRuntime log:\n")
             if (logFile.exists()) {
                 try {
