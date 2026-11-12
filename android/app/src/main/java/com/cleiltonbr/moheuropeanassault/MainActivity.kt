@@ -245,6 +245,18 @@ class MainActivity : Activity(), SurfaceHolder.Callback {
             append("Current session crash marker present: ").append(marker.exists()).append("\n")
             append("Previous session crash marker preserved: ").append(previousMarker.exists()).append("\n\n")
             append("Runtime status: captured from local files; native runtime intentionally not queried.\n")
+            val crashReportFile = File(filesDir, "moh-crash-report.log")
+            if (crashReportFile.isFile) {
+                append("\\n\\nDEDICATED NATIVE CRASH REPORT (written directly by signal handler):\\n")
+                try {
+                    append(crashReportFile.readText().take(64 * 1024))
+                    append("\\n")
+                } catch (e: Exception) {
+                    append("Could not read dedicated native crash report: ").append(e.message).append('\\n')
+                }
+            } else {
+                append("\\nDedicated native crash report not present.\\n")
+            }
             val exitInfoFile = File(filesDir, "moh-exit-info-previous.txt")
             if (exitInfoFile.isFile) {
                 append("\n\nANDROID HISTORICAL PROCESS EXIT INFO / NATIVE TRACE:\n")
