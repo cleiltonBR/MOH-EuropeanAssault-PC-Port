@@ -67,7 +67,15 @@ std::vector<uint8_t> g_xbe_image;
 
 char g_log_path[PATH_MAX] = {0};
 char g_crash_marker_path[PATH_MAX] = {0};
+char g_crash_report_path[PATH_MAX] = {0};
+volatile sig_atomic_t g_crash_report_fd = -1;
 volatile sig_atomic_t g_crash_logged = 0;
+
+void writeCrashData(int fd, const void* data, size_t size) {
+    if (fd >= 0) (void)write(fd, data, size);
+    const int reportFd = g_crash_report_fd;
+    if (reportFd >= 0 && reportFd != fd) (void)write(reportFd, data, size);
+}
 
 void writeHexValue(int fd, uintptr_t value) {
     char buffer[2 * sizeof(uintptr_t)];
@@ -78,7 +86,7 @@ void writeHexValue(int fd, uintptr_t value) {
     } while (value && count < sizeof(buffer));
     while (count) {
         char ch = buffer[--count];
-        (void)write(fd, &ch, 1);
+        writeCrashData(fd, &ch, 1);
     }
 }
 
@@ -132,17 +140,21 @@ void fatalSignalHandler(int signalNumber, siginfo_t* info, void* rawContext) {
         }
     }
 
-    if (g_log_path[0]) {
-        int fd = open(g_log_path, O_WRONLY | O_CREAT | O_APPEND | O_CLOEXEC, 0600);
-        if (fd >= 0) {
+    const int reportFd = g_crash_report_path[0]
+        ? open(g_crash_report_path, O_WRONLY | O_CREAT | O_TRUNC | O_CLOEXEC, 0600) : -1;
+    g_crash_report_fd = reportFd;
+    const int fd = g_log_path[0]
+        ? open(g_log_path, O_WRONLY | O_CREAT | O_APPEND | O_CLOEXEC, 0600) : -1;
+    if (fd >= 0 || reportFd >= 0) {
+            const int outputFd = fd >= 0 ? fd : reportFd;
             static const char prefix[] = "\nFATAL NATIVE SIGNAL: ";
-            (void)write(fd, prefix, sizeof(prefix) - 1);
+            (void)writeCrashData(outputFd, prefix, sizeof(prefix) - 1);
             writeHexValue(fd, (uintptr_t)signalNumber);
             static const char addressPrefix[] = " fault_addr=0x";
-            (void)write(fd, addressPrefix, sizeof(addressPrefix) - 1);
+            (void)writeCrashData(outputFd, addressPrefix, sizeof(addressPrefix) - 1);
             writeHexValue(fd, info ? reinterpret_cast<uintptr_t>(info->si_addr) : 0);
             static const char codePrefix[] = " si_code=";
-            (void)write(fd, codePrefix, sizeof(codePrefix) - 1);
+            (void)writeCrashData(outputFd, codePrefix, sizeof(codePrefix) - 1);
             writeHexValue(fd, info ? (uintptr_t)info->si_code : 0);
 
 #if defined(__aarch64__)
@@ -181,77 +193,77 @@ void fatalSignalHandler(int signalNumber, siginfo_t* info, void* rawContext) {
                 static const char x27Prefix[] = " x27=0x";
                 static const char x28Prefix[] = " x28=0x";
                 static const char x29Prefix[] = " x29=0x";
-                (void)write(fd, pcPrefix, sizeof(pcPrefix) - 1);
+                (void)writeCrashData(outputFd, pcPrefix, sizeof(pcPrefix) - 1);
                 writeHexValue(fd, (uintptr_t)context->uc_mcontext.pc);
-                (void)write(fd, spPrefix, sizeof(spPrefix) - 1);
+                (void)writeCrashData(outputFd, spPrefix, sizeof(spPrefix) - 1);
                 writeHexValue(fd, (uintptr_t)context->uc_mcontext.sp);
-                (void)write(fd, lrPrefix, sizeof(lrPrefix) - 1);
+                (void)writeCrashData(outputFd, lrPrefix, sizeof(lrPrefix) - 1);
                 writeHexValue(fd, (uintptr_t)context->uc_mcontext.regs[30]);
-                (void)write(fd, x0Prefix, sizeof(x0Prefix) - 1);
+                (void)writeCrashData(outputFd, x0Prefix, sizeof(x0Prefix) - 1);
                 writeHexValue(fd, (uintptr_t)context->uc_mcontext.regs[0]);
-                (void)write(fd, x1Prefix, sizeof(x1Prefix) - 1);
+                (void)writeCrashData(outputFd, x1Prefix, sizeof(x1Prefix) - 1);
                 writeHexValue(fd, (uintptr_t)context->uc_mcontext.regs[1]);
-                (void)write(fd, x2Prefix, sizeof(x2Prefix) - 1);
+                (void)writeCrashData(outputFd, x2Prefix, sizeof(x2Prefix) - 1);
                 writeHexValue(fd, (uintptr_t)context->uc_mcontext.regs[2]);
-                (void)write(fd, x3Prefix, sizeof(x3Prefix) - 1);
+                (void)writeCrashData(outputFd, x3Prefix, sizeof(x3Prefix) - 1);
                 writeHexValue(fd, (uintptr_t)context->uc_mcontext.regs[3]);
-                (void)write(fd, x4Prefix, sizeof(x4Prefix) - 1);
+                (void)writeCrashData(outputFd, x4Prefix, sizeof(x4Prefix) - 1);
                 writeHexValue(fd, (uintptr_t)context->uc_mcontext.regs[4]);
-                (void)write(fd, x5Prefix, sizeof(x5Prefix) - 1);
+                (void)writeCrashData(outputFd, x5Prefix, sizeof(x5Prefix) - 1);
                 writeHexValue(fd, (uintptr_t)context->uc_mcontext.regs[5]);
-                (void)write(fd, x6Prefix, sizeof(x6Prefix) - 1);
+                (void)writeCrashData(outputFd, x6Prefix, sizeof(x6Prefix) - 1);
                 writeHexValue(fd, (uintptr_t)context->uc_mcontext.regs[6]);
-                (void)write(fd, x7Prefix, sizeof(x7Prefix) - 1);
+                (void)writeCrashData(outputFd, x7Prefix, sizeof(x7Prefix) - 1);
                 writeHexValue(fd, (uintptr_t)context->uc_mcontext.regs[7]);
-                (void)write(fd, x8Prefix, sizeof(x8Prefix) - 1);
+                (void)writeCrashData(outputFd, x8Prefix, sizeof(x8Prefix) - 1);
                 writeHexValue(fd, (uintptr_t)context->uc_mcontext.regs[8]);
-                (void)write(fd, x9Prefix, sizeof(x9Prefix) - 1);
+                (void)writeCrashData(outputFd, x9Prefix, sizeof(x9Prefix) - 1);
                 writeHexValue(fd, (uintptr_t)context->uc_mcontext.regs[9]);
-                (void)write(fd, x10Prefix, sizeof(x10Prefix) - 1);
+                (void)writeCrashData(outputFd, x10Prefix, sizeof(x10Prefix) - 1);
                 writeHexValue(fd, (uintptr_t)context->uc_mcontext.regs[10]);
-                (void)write(fd, x11Prefix, sizeof(x11Prefix) - 1);
+                (void)writeCrashData(outputFd, x11Prefix, sizeof(x11Prefix) - 1);
                 writeHexValue(fd, (uintptr_t)context->uc_mcontext.regs[11]);
-                (void)write(fd, x12Prefix, sizeof(x12Prefix) - 1);
+                (void)writeCrashData(outputFd, x12Prefix, sizeof(x12Prefix) - 1);
                 writeHexValue(fd, (uintptr_t)context->uc_mcontext.regs[12]);
-                (void)write(fd, x13Prefix, sizeof(x13Prefix) - 1);
+                (void)writeCrashData(outputFd, x13Prefix, sizeof(x13Prefix) - 1);
                 writeHexValue(fd, (uintptr_t)context->uc_mcontext.regs[13]);
-                (void)write(fd, x14Prefix, sizeof(x14Prefix) - 1);
+                (void)writeCrashData(outputFd, x14Prefix, sizeof(x14Prefix) - 1);
                 writeHexValue(fd, (uintptr_t)context->uc_mcontext.regs[14]);
-                (void)write(fd, x15Prefix, sizeof(x15Prefix) - 1);
+                (void)writeCrashData(outputFd, x15Prefix, sizeof(x15Prefix) - 1);
                 writeHexValue(fd, (uintptr_t)context->uc_mcontext.regs[15]);
-                (void)write(fd, x16Prefix, sizeof(x16Prefix) - 1);
+                (void)writeCrashData(outputFd, x16Prefix, sizeof(x16Prefix) - 1);
                 writeHexValue(fd, (uintptr_t)context->uc_mcontext.regs[16]);
-                (void)write(fd, x17Prefix, sizeof(x17Prefix) - 1);
+                (void)writeCrashData(outputFd, x17Prefix, sizeof(x17Prefix) - 1);
                 writeHexValue(fd, (uintptr_t)context->uc_mcontext.regs[17]);
-                (void)write(fd, x18Prefix, sizeof(x18Prefix) - 1);
+                (void)writeCrashData(outputFd, x18Prefix, sizeof(x18Prefix) - 1);
                 writeHexValue(fd, (uintptr_t)context->uc_mcontext.regs[18]);
-                (void)write(fd, x19Prefix, sizeof(x19Prefix) - 1);
+                (void)writeCrashData(outputFd, x19Prefix, sizeof(x19Prefix) - 1);
                 writeHexValue(fd, (uintptr_t)context->uc_mcontext.regs[19]);
-                (void)write(fd, x20Prefix, sizeof(x20Prefix) - 1);
+                (void)writeCrashData(outputFd, x20Prefix, sizeof(x20Prefix) - 1);
                 writeHexValue(fd, (uintptr_t)context->uc_mcontext.regs[20]);
-                (void)write(fd, x21Prefix, sizeof(x21Prefix) - 1);
+                (void)writeCrashData(outputFd, x21Prefix, sizeof(x21Prefix) - 1);
                 writeHexValue(fd, (uintptr_t)context->uc_mcontext.regs[21]);
-                (void)write(fd, x22Prefix, sizeof(x22Prefix) - 1);
+                (void)writeCrashData(outputFd, x22Prefix, sizeof(x22Prefix) - 1);
                 writeHexValue(fd, (uintptr_t)context->uc_mcontext.regs[22]);
-                (void)write(fd, x23Prefix, sizeof(x23Prefix) - 1);
+                (void)writeCrashData(outputFd, x23Prefix, sizeof(x23Prefix) - 1);
                 writeHexValue(fd, (uintptr_t)context->uc_mcontext.regs[23]);
-                (void)write(fd, x24Prefix, sizeof(x24Prefix) - 1);
+                (void)writeCrashData(outputFd, x24Prefix, sizeof(x24Prefix) - 1);
                 writeHexValue(fd, (uintptr_t)context->uc_mcontext.regs[24]);
-                (void)write(fd, x25Prefix, sizeof(x25Prefix) - 1);
+                (void)writeCrashData(outputFd, x25Prefix, sizeof(x25Prefix) - 1);
                 writeHexValue(fd, (uintptr_t)context->uc_mcontext.regs[25]);
-                (void)write(fd, x26Prefix, sizeof(x26Prefix) - 1);
+                (void)writeCrashData(outputFd, x26Prefix, sizeof(x26Prefix) - 1);
                 writeHexValue(fd, (uintptr_t)context->uc_mcontext.regs[26]);
-                (void)write(fd, x27Prefix, sizeof(x27Prefix) - 1);
+                (void)writeCrashData(outputFd, x27Prefix, sizeof(x27Prefix) - 1);
                 writeHexValue(fd, (uintptr_t)context->uc_mcontext.regs[27]);
-                (void)write(fd, x28Prefix, sizeof(x28Prefix) - 1);
+                (void)writeCrashData(outputFd, x28Prefix, sizeof(x28Prefix) - 1);
                 writeHexValue(fd, (uintptr_t)context->uc_mcontext.regs[28]);
-                (void)write(fd, x29Prefix, sizeof(x29Prefix) - 1);
+                (void)writeCrashData(outputFd, x29Prefix, sizeof(x29Prefix) - 1);
                 writeHexValue(fd, (uintptr_t)context->uc_mcontext.regs[29]);
                 /* Do not dereference the interrupted SP in a signal handler.
                  * The stack may be the cause of the fault or may no longer be
                  * mapped; a second SIGSEGV here destroys the original report. */
                 static const char stackNote[] = " stack_words=(not-read; unsafe in signal handler)";
-                (void)write(fd, stackNote, sizeof(stackNote) - 1);
+                (void)writeCrashData(outputFd, stackNote, sizeof(stackNote) - 1);
 #if defined(MOH_GENERATED_RECOMP_LINKED)
                 static const char guestPrefix[] = " guest_x86{eax=0x";
                 static const char ecxPrefix[] = " ecx=0x";
@@ -261,38 +273,39 @@ void fatalSignalHandler(int signalNumber, siginfo_t* info, void* rawContext) {
                 static const char ediPrefix[] = " edi=0x";
                 static const char espPrefix[] = " esp=0x";
                 static const char tracePrefix[] = " icall_count=0x";
-                (void)write(fd, guestPrefix, sizeof(guestPrefix) - 1);
+                (void)writeCrashData(outputFd, guestPrefix, sizeof(guestPrefix) - 1);
                 writeHexValue(fd, g_eax);
-                (void)write(fd, ecxPrefix, sizeof(ecxPrefix) - 1);
+                (void)writeCrashData(outputFd, ecxPrefix, sizeof(ecxPrefix) - 1);
                 writeHexValue(fd, g_ecx);
-                (void)write(fd, edxPrefix, sizeof(edxPrefix) - 1);
+                (void)writeCrashData(outputFd, edxPrefix, sizeof(edxPrefix) - 1);
                 writeHexValue(fd, g_edx);
-                (void)write(fd, ebxPrefix, sizeof(ebxPrefix) - 1);
+                (void)writeCrashData(outputFd, ebxPrefix, sizeof(ebxPrefix) - 1);
                 writeHexValue(fd, g_ebx);
-                (void)write(fd, esiPrefix, sizeof(esiPrefix) - 1);
+                (void)writeCrashData(outputFd, esiPrefix, sizeof(esiPrefix) - 1);
                 writeHexValue(fd, g_esi);
-                (void)write(fd, ediPrefix, sizeof(ediPrefix) - 1);
+                (void)writeCrashData(outputFd, ediPrefix, sizeof(ediPrefix) - 1);
                 writeHexValue(fd, g_edi);
-                (void)write(fd, espPrefix, sizeof(espPrefix) - 1);
+                (void)writeCrashData(outputFd, espPrefix, sizeof(espPrefix) - 1);
                 writeHexValue(fd, g_esp);
-                (void)write(fd, tracePrefix, sizeof(tracePrefix) - 1);
+                (void)writeCrashData(outputFd, tracePrefix, sizeof(tracePrefix) - 1);
                 writeHexValue(fd, g_icall_count);
                 const uint32_t traceEnd = g_icall_trace_idx;
                 for (uint32_t i = 0; i < 16; ++i) {
                     const uint32_t target = g_icall_trace[(traceEnd - 1u - i) & 15u];
                     static const char targetPrefix[] = " icall=0x";
-                    (void)write(fd, targetPrefix, sizeof(targetPrefix) - 1);
+                    (void)writeCrashData(outputFd, targetPrefix, sizeof(targetPrefix) - 1);
                     writeHexValue(fd, target);
                 }
                 static const char guestEnd[] = "}";
-                (void)write(fd, guestEnd, sizeof(guestEnd) - 1);
+                (void)writeCrashData(outputFd, guestEnd, sizeof(guestEnd) - 1);
 #endif
             }
 #endif
-            (void)write(fd, "\n", 1);
+            (void)writeCrashData(outputFd, "\n", 1);
 
-            close(fd);
-        }
+            if (fd >= 0) close(fd);
+            if (reportFd >= 0) close(reportFd);
+            g_crash_report_fd = -1;
     }
     /*
      * SA_RESETHAND has already restored SIG_DFL for this signal. Return to
@@ -709,6 +722,7 @@ Java_com_cleiltonbr_moheuropeanassault_MainActivity_nativeConfigureLogging(
     if (chars) {
         snprintf(g_log_path, sizeof(g_log_path), "%s/moh-runtime.log", chars);
         snprintf(g_crash_marker_path, sizeof(g_crash_marker_path), "%s/moh-crash.marker", chars);
+        snprintf(g_crash_report_path, sizeof(g_crash_report_path), "%s/moh-crash-report.log", chars);
         env->ReleaseStringUTFChars(directory, chars);
         installCrashDiagnostics();
         appendRuntimeLog("Diagnostics: native crash handlers installed");
