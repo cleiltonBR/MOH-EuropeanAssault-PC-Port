@@ -247,15 +247,15 @@ class MainActivity : Activity(), SurfaceHolder.Callback {
             append("Runtime status: captured from local files; native runtime intentionally not queried.\n")
             val crashReportFile = File(filesDir, "moh-crash-report.log")
             if (crashReportFile.isFile) {
-                append("\\n\\nDEDICATED NATIVE CRASH REPORT (written directly by signal handler):\\n")
+                append("\n\nDEDICATED NATIVE CRASH REPORT (written directly by signal handler):\n")
                 try {
                     append(crashReportFile.readText().take(64 * 1024))
-                    append("\\n")
+                    append("\n")
                 } catch (e: Exception) {
-                    append("Could not read dedicated native crash report: ").append(e.message).append('\\n')
+                    append("Could not read dedicated native crash report: ").append(e.message).append('\n')
                 }
             } else {
-                append("\\nDedicated native crash report not present.\\n")
+                append("\nDedicated native crash report not present.\n")
             }
             val exitInfoFile = File(filesDir, "moh-exit-info-previous.txt")
             if (exitInfoFile.isFile) {
