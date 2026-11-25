@@ -71,10 +71,10 @@ target_link_libraries(moh_android PRIVATE
 )
 target_compile_definitions(moh_android PRIVATE MOH_ANDROID_PLATFORM_LINKED=1)
 
-# Compile the private generated code for ARM64 as a separate validation target.
-# It is deliberately not linked into libmoh_android until the Android XBE loader,
-# guest-memory setup and kernel startup path are ported. Forcing xbe_entry_point
-# into the APK before those dependencies exist causes an incomplete native link.
+# Compile and link the private generated game code for ARM64 when the
+# workflow supplies its source archive. The Android runtime now performs XBE
+# section mapping, kernel/thunk initialization and guarded entry-point dispatch.
+# Keep this opt-in for local builds that do not have access to the private source.
 option(MOH_BUILD_GENERATED_RECOMP "Compile private generated game code for Android ARM64" OFF)
 set(RECOMP_GEN_DIR "" CACHE PATH "Private directory containing generated recompilation C sources")
 set(RECOMP_ROOT_DIR "" CACHE PATH "Private recompilation root containing dispatcher and unresolved stubs")
