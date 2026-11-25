@@ -12,7 +12,8 @@
 #include <unistd.h>
 #include <android/log.h>
 #include "platform/xbox_winnt.h"
-#include "kernel.h"
+#include "kernel/kernel.h"
+#include "kernel/xbox_memory_layout.h"
 
 void game_patch_000137C0(void);
 void game_patch_0017B210(void);
