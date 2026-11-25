@@ -7,10 +7,12 @@
  * exist. The underlying lifted update routines still execute.
  */
 #include <stdint.h>
+#include <stddef.h>
 #include <stdlib.h>
 #include <unistd.h>
 #include <android/log.h>
 #include "platform/xbox_winnt.h"
+#include "kernel.h"
 
 void game_patch_000137C0(void);
 void game_patch_0017B210(void);
@@ -112,8 +114,6 @@ void sub_001C68C0_enter(void) {}
 extern void nv2a_pb_set_semaphore_target(uint32_t guest_va);
 extern void nv2a_pb_set_swmethod_handler(void (*fn)(uint32_t param));
 extern void xbox_KeSetEventGuest(uint32_t guest_va);
-extern size_t xbox_GetMappedSize(void);
-extern void *xbox_GetMemoryBase(void);
 
 static int s_d3d_pb_hooks_installed;
 
@@ -126,7 +126,7 @@ static int moh_guest_dword_readable(uint32_t va)
         return 0;
     if (end <= mapped)
         return 1;
-    return va >= 0x80000000u && end <= 0x80000000ull + 0x10000000ull;
+    return va >= XBOX_CONTIG_BASE\n        && end <= (uint64_t)XBOX_CONTIG_BASE + XBOX_CONTIG_SIZE;
 }
 
 static uint32_t moh_guest_read32(uint32_t va)
