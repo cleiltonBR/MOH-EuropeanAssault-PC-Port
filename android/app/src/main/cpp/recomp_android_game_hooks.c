@@ -141,32 +141,39 @@ static uint32_t moh_guest_read32(uint32_t va)
 static void moh_d3d_swmethod(uint32_t param)
 {
     uint32_t device;
+    uint64_t event_va;
 
     if ((param & 0x1Fu) != 5u
             || !moh_guest_dword_readable(MOH_GAME_D3D_DEVICE_PTR))
         return;
 
     device = moh_guest_read32(MOH_GAME_D3D_DEVICE_PTR);
-    if (!device || !moh_guest_dword_readable(device + MOH_GAME_D3D_BUSY_EVENT))
+    event_va = (uint64_t)device + MOH_GAME_D3D_BUSY_EVENT;
+    if (!device || event_va > UINT32_MAX
+            || !moh_guest_dword_readable((uint32_t)event_va))
         return;
 
-    xbox_KeSetEventGuest(device + MOH_GAME_D3D_BUSY_EVENT);
+    xbox_KeSetEventGuest((uint32_t)event_va);
 }
 
 void sub_002DE0C0_enter(void)
 {
     uint32_t device, semaphore;
+    uint64_t semaphore_ptr_va;
 
     if (s_d3d_pb_hooks_installed
             || !moh_guest_dword_readable(MOH_GAME_D3D_DEVICE_PTR))
         return;
 
     device = moh_guest_read32(MOH_GAME_D3D_DEVICE_PTR);
-    if (!device || !moh_guest_dword_readable(device + 0x30u))
+    semaphore_ptr_va = (uint64_t)device + 0x30u;
+    if (!device || semaphore_ptr_va > UINT32_MAX
+            || !moh_guest_dword_readable((uint32_t)semaphore_ptr_va))
         return;
 
-    semaphore = moh_guest_read32(device + 0x30u);
-    if (!semaphore || !moh_guest_dword_readable(semaphore))
+    semaphore = moh_guest_read32((uint32_t)semaphore_ptr_va);
+    if (!semaphore || (semaphore & 3u)
+            || !moh_guest_dword_readable(semaphore))
         return;
 
     nv2a_pb_set_semaphore_target(semaphore);
