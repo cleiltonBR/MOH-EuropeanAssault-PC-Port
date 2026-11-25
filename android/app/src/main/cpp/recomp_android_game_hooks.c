@@ -127,7 +127,8 @@ static int moh_guest_dword_readable(uint32_t va)
         return 0;
     if (end <= mapped)
         return 1;
-    return va >= XBOX_CONTIG_BASE\n        && end <= (uint64_t)XBOX_CONTIG_BASE + XBOX_CONTIG_SIZE;
+    return va >= XBOX_CONTIG_BASE
+        && end <= (uint64_t)XBOX_CONTIG_BASE + XBOX_CONTIG_SIZE;
 }
 
 static uint32_t moh_guest_read32(uint32_t va)
