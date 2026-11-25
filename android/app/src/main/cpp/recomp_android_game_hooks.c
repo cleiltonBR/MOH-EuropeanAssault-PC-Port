@@ -93,6 +93,84 @@ void sub_0018B480_enter(void) {}
 void sub_0018E150_enter(void) {}
 void sub_001C68C0_enter(void) {}
 
-/* Desktop push-buffer timing diagnostics only; Android GPU execution is a
- * separate integration task and is not faked by this hook. */
-void sub_002DE0C0_enter(void) {}
+/*
+ * Android D3D_BlockOnTime bridge.
+ *
+ * The desktop hook registers the guest semaphore with the NV2A pushbuffer
+ * executor and handles D3D software method 5 by signalling the device's busy
+ * event. This is not timing instrumentation: without the semaphore target,
+ * BACK_END_WRITE_SEMAPHORE_RELEASE cannot complete the guest fence; without
+ * the software-method callback, a title that waits for the GPU interrupt can
+ * sleep forever.
+ *
+ * Keep the guest addresses and callback semantics identical to the original
+ * game patch, but use the Android runtime's already-linked kernel/NV2A code.
+ */
+#define MOH_GAME_D3D_DEVICE_PTR 0x002E9548u
+#define MOH_GAME_D3D_BUSY_EVENT 0x1DCCu
+
+extern void nv2a_pb_set_semaphore_target(uint32_t guest_va);
+extern void nv2a_pb_set_swmethod_handler(void (*fn)(uint32_t param));
+extern void xbox_KeSetEventGuest(uint32_t guest_va);
+extern size_t xbox_GetMappedSize(void);
+extern void *xbox_GetMemoryBase(void);
+
+static int s_d3d_pb_hooks_installed;
+
+static int moh_guest_dword_readable(uint32_t va)
+{
+    const uint64_t end = (uint64_t)va + sizeof(uint32_t);
+    const size_t mapped = xbox_GetMappedSize();
+
+    if (!xbox_GetMemoryBase() || va < 0x1000u)
+        return 0;
+    if (end <= mapped)
+        return 1;
+    return va >= 0x80000000u && end <= 0x80000000ull + 0x10000000ull;
+}
+
+static uint32_t moh_guest_read32(uint32_t va)
+{
+    const uintptr_t host = (uintptr_t)((ptrdiff_t)(uintptr_t)va
+                                       + g_xbox_mem_offset);
+    return *(volatile uint32_t *)host;
+}
+
+static void moh_d3d_swmethod(uint32_t param)
+{
+    uint32_t device;
+
+    if ((param & 0x1Fu) != 5u
+            || !moh_guest_dword_readable(MOH_GAME_D3D_DEVICE_PTR))
+        return;
+
+    device = moh_guest_read32(MOH_GAME_D3D_DEVICE_PTR);
+    if (!device || !moh_guest_dword_readable(device + MOH_GAME_D3D_BUSY_EVENT))
+        return;
+
+    xbox_KeSetEventGuest(device + MOH_GAME_D3D_BUSY_EVENT);
+}
+
+void sub_002DE0C0_enter(void)
+{
+    uint32_t device, semaphore;
+
+    if (s_d3d_pb_hooks_installed
+            || !moh_guest_dword_readable(MOH_GAME_D3D_DEVICE_PTR))
+        return;
+
+    device = moh_guest_read32(MOH_GAME_D3D_DEVICE_PTR);
+    if (!device || !moh_guest_dword_readable(device + 0x30u))
+        return;
+
+    semaphore = moh_guest_read32(device + 0x30u);
+    if (!semaphore || !moh_guest_dword_readable(semaphore))
+        return;
+
+    nv2a_pb_set_semaphore_target(semaphore);
+    nv2a_pb_set_swmethod_handler(moh_d3d_swmethod);
+    s_d3d_pb_hooks_installed = 1;
+    __android_log_print(ANDROID_LOG_INFO, "MOH-Recomp",
+        "D3D/NV2A synchronization installed: device=0x%08X semaphore=0x%08X",
+        device, semaphore);
+}
