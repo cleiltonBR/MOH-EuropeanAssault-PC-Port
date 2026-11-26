@@ -153,24 +153,38 @@ jobs:
               printf '%-32s exit=%s\\n' "$TARGET" "$RESULT" >> "$REPORT"
             done
             python3 - "$BUILD_DIR" "$REPORT" <<'PY'
-          import json, pathlib, shlex, subprocess, sys
+          import json, os, pathlib, shlex, subprocess, sys
           build = pathlib.Path(sys.argv[1])
           report = pathlib.Path(sys.argv[2])
           db_path = build / "compile_commands.json"
           entries = json.loads(db_path.read_text()) if db_path.exists() else []
-          native = [e for e in entries if pathlib.Path(e["file"]).name == "native_entry.cpp"]
-          if not native:
+          selected = [e for e in entries
+                      if pathlib.Path(e["file"]).name == "native_entry.cpp"
+                      or pathlib.Path(e["file"]).name in {
+                          "recomp_android_hooks.c", "recomp_android_game_hooks.c",
+                          "game_patches.c", "recomp_dispatch.c",
+                          "recomp_stubs_unresolved.c"
+                      }
+                      or pathlib.Path(e["file"]).parent == pathlib.Path(os.environ.get("RECOMP_GEN_DIR", "/nonexistent"))]
+          if not selected:
               with report.open("a") as out:
-                  out.write("native_entry.cpp compile command not found\\n")
-          for entry in native:
+                  out.write("No selected native/generated compile commands found\\n")
+          for entry in selected:
+              source = pathlib.Path(entry["file"])
               command = entry.get("arguments") or shlex.split(entry["command"])
               p = subprocess.run(command, cwd=entry["directory"], text=True,
                                  stdout=subprocess.PIPE, stderr=subprocess.STDOUT)
               with report.open("a") as out:
-                  out.write(f"native_entry.cpp compile exit={p.returncode}\\n")
-                  for line in p.stdout.splitlines():
-                      if any(x in line.lower() for x in ("error:", "fatal error:", "undefined reference", "no such file")):
-                          out.write("  " + line[:500] + "\\n")
+                  out.write(f"{source.name} compile exit={p.returncode}\\n")
+                  matches = [line for line in p.stdout.splitlines()
+                             if any(x in line.lower() for x in (
+                                 "error:", "fatal error:", "undefined reference",
+                                 "no such file", "clang:", "ld.lld:"
+                             ))]
+                  if not matches and p.returncode != 0:
+                      out.write("  Compiler returned non-zero without a recognized diagnostic\\n")
+                  for line in matches[:80]:
+                      out.write("  " + line[:500] + "\\n")
           p = subprocess.run(["cmake", "--build", str(build), "--target", "moh_android", "--parallel", "2"],
                              text=True, stdout=subprocess.PIPE, stderr=subprocess.STDOUT)
           with report.open("a") as out:
